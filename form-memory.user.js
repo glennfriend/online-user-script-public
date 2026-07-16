@@ -2,7 +2,7 @@
 // @name         表單記憶助手
 // @name:en      Form Memory
 // @namespace    https://github.com/glennfriend/online-user-script-public
-// @version      1.0.5
+// @version      1.0.6
 // @description  在任何有表單的頁面：F1 儲存目前所有 input / select / checkbox / radio 的值，F2 叫出清單，勾選要套用的項目後回寫。設定值依網址（host + path）分別記憶。
 // @author       Glenn
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/form-memory.user.js
@@ -14,6 +14,32 @@
 // @run-at       document-idle
 // @noframes
 // ==/UserScript==
+
+/*
+ * 表單記憶助手 — 使用說明
+ * ============================================================================
+ * 用途：在任何有表單的頁面，快速儲存 / 還原常填的表單設定值。
+ *
+ * 操作：
+ *   F1  儲存目前頁面所有欄位的值（input / select / checkbox / radio / textarea）。
+ *   F2  叫出清單視窗，逐項顯示將被套用的值；每項前面有 checkbox（預設全選），
+ *       按「讀取」只把有勾選的值回寫到頁面。
+ *
+ * 行為細節：
+ *   - 只記「有值」的欄位：空白輸入框、未勾選的 checkbox 不會被記，清單保持乾淨。
+ *     也就是 F2 只會「幫你填上」，不會「幫你清空」。
+ *   - 不記密碼（type=password）與檔案 / 隱藏 / 按鈕類欄位。
+ *   - 回寫時會觸發 input / change 事件，React / Vue 等框架表單也吃得到。
+ *   - 設定值依網址（host + path）分開儲存；視窗位置全站共用一份。
+ *   - 視窗可拖拉標題列移動；會記住上次位置，若超出視界則回到預設置中。
+ *
+ * 儲存：優先用 GM_setValue / GM_getValue，無 GM 時退回 localStorage。
+ *   key 前綴 formmem::；視窗位置存於 formmem::__dialogpos__。
+ *
+ * 已知限制：@noframes，故 iframe 內的表單不處理；@exclude YouTube 以免 F1 與
+ *   YouTube 頁面助手熱鍵衝突。
+ * ============================================================================
+ */
 
 (function () {
     'use strict';
