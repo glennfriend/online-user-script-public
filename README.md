@@ -4,6 +4,7 @@
 這裡的每一個 `*.user.js` 都可以直接在 Tampermonkey 安裝與使用，未來新增的腳本也會陸續加入此清單。
 
 > 詳細功能與實作說明，請直接點進各個 `.user.js` 檔案的開頭註解與程式碼閱讀。
+> 開發規範與設計原則見 [CONVENTIONS.md](CONVENTIONS.md)。
 
 ---
 

@@ -2,9 +2,11 @@
 // @name         表單記憶助手
 // @name:en      Form Memory
 // @namespace    https://github.com/glennfriend/online-user-script-public
-// @version      1.0.0
+// @version      1.0.1
 // @description  在任何有表單的頁面：F1 儲存目前所有 input / select / checkbox / radio 的值，F2 叫出清單，勾選要套用的項目後回寫。設定值依網址（host + path）分別記憶。
 // @author       Glenn
+// @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/form-memory.user.js
+// @downloadURL  https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/form-memory.user.js
 // @match        *://*/*
 // @exclude      *://*.youtube.com/*
 // @grant        GM_setValue
