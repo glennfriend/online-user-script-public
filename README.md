@@ -9,26 +9,41 @@
 
 ## 📦 功能清單
 
-| 腳本 | 說明 | 安裝 | 原始碼 |
-|------|------|------|--------|
-| **YouTube 字幕自動轉繁體** | 看 YouTube 時，若目前字幕是簡體中文：有繁體字幕軌就自動切過去；沒有但可翻譯就自動翻成繁體中文（zh-Hant）。載入後會持續盯場，撐過 YouTube 把字幕重置回簡體的情況。 | [安裝](https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-subtitle-to-traditional.user.js) | [youtube-subtitle-to-traditional.user.js](youtube-subtitle-to-traditional.user.js) |
-| **YouTube 頁面助手** | YouTube 浮動助手，依當前頁面顯示不同功能選單：首頁 / 搜尋結果 / 頻道頁 / 訂閱內容 / 播放清單可「列出所有影片並依時間排序」，並自動為影片加上分類標籤（影劇、美食、健康、Game、財經、科技…）；在 Shorts 頁可一鍵轉成一般影片頁、快轉／倒退。預設熱鍵 `F1` 開關面板。 | [安裝](https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-video-list.user.js) | [youtube-video-list.user.js](youtube-video-list.user.js) |
+| 腳本 | 說明 | 安裝 |
+|------|------|------|
+| **YouTube 字幕自動轉繁體** | YouTube 字幕是簡體時，自動切換或翻譯成繁體中文。 | [link](https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-subtitle-to-traditional.user.js) |
+| **YouTube 頁面助手** | YouTube 浮動助手，可依時間列出影片並自動分類，Shorts 一鍵轉一般影片頁。 | [link](https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-video-list.user.js) |
 
 ---
 
-## 🚀 如何安裝 / 引用
+## 🚀 如何安裝（第一次使用請照這裡做）
 
-1. 先在瀏覽器安裝 [Tampermonkey](https://www.tampermonkey.net/) 擴充功能。
-2. 點上面表格中的 **「安裝」** 連結（也就是 `raw.githubusercontent.com` 上的 `*.user.js` 網址）。
-3. Tampermonkey 會自動辨識為 User Script 並跳出安裝畫面，按 **安裝 / Install** 即可。
-4. 之後開啟對應網站（例如 YouTube）腳本就會自動生效。
+### 步驟 1：先安裝 Tampermonkey 擴充功能
 
-> 安裝連結的網址格式為：
-> `https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/<檔名>.user.js`
+如果你的瀏覽器還沒有 Tampermonkey，先去官方頁面安裝：👉 <https://www.tampermonkey.net/>
+
+- **Chrome 使用者請注意**：Chrome 新版需要額外打開一個開關才能執行腳本。
+  在網址列輸入 `chrome://extensions` → 找到 Tampermonkey → 點「詳細資料」→ 把 **「允許使用者指令碼 / Allow User Scripts」** 打開。
+  （沒打開的話腳本裝了也不會生效。）
+
+### 步驟 2：點「link」安裝腳本
+
+1. 在上面的**功能清單**表格，點你要的腳本那一列的 **`link`**。
+2. Tampermonkey 會自動跳出一個「使用者腳本安裝」的畫面。
+3. 按綠色的 **安裝 / Install** 按鈕，完成！
+4. 打開對應網站（例如 YouTube），腳本就會自動生效。
+
+### ❓ 沒有跳出安裝畫面 / 出現「無效的使用者腳本」？
+
+- 請確認你點的是表格裡的 **`link`**（網址開頭是 `raw.githubusercontent.com`）。
+  **不要**點 GitHub 上的檔名連結去安裝——那是網頁，Tampermonkey 會判定為「無效」。
+- 如果點了之後瀏覽器只是把程式碼「顯示成文字」、沒有跳出安裝視窗：
+  1. 複製該 `link` 的完整網址。
+  2. 打開 Tampermonkey → 進到它的管理面板（左上角圖示 →「管理面板 / Dashboard」）。
+  3. 到 **「工具 / Utilities」** 分頁，找到 **「Import from URL / 從網址匯入」**，貼上網址後按匯入即可。
 
 ---
 
 ## 🔄 更新
 
-- 每個腳本都有 `@version`，Tampermonkey 會定期向來源網址檢查是否有新版本。
-- 若想讓「自動更新」更可靠，可在腳本 metadata 中加入 `@updateURL` 與 `@downloadURL`（見下方說明）。
+安裝後不用手動更新——每個腳本都有版本號（`@version`），Tampermonkey 會定期自動檢查並更新到最新版。
