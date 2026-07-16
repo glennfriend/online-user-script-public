@@ -2,7 +2,7 @@
 // @name         表單記憶助手
 // @name:en      Form Memory
 // @namespace    https://github.com/glennfriend/online-user-script-public
-// @version      1.0.2
+// @version      1.0.3
 // @description  在任何有表單的頁面：F1 儲存目前所有 input / select / checkbox / radio 的值，F2 叫出清單，勾選要套用的項目後回寫。設定值依網址（host + path）分別記憶。
 // @author       Glenn
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/form-memory.user.js
@@ -36,6 +36,7 @@
 
     const PREFIX = 'formmem::';
     const pageKey = () => PREFIX + location.host + location.pathname;
+    const POS_KEY = PREFIX + '__dialogpos__';   // 記住視窗上次被拖到的位置（跨頁通用）
 
     // 不處理的 input type（密碼、檔案、隱藏、按鈕類）
     const SKIP_TYPES = ['password', 'file', 'hidden', 'submit', 'reset', 'button', 'image'];
@@ -205,6 +206,20 @@
         if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); closeDialog(); }
     }
 
+    // 還原視窗位置；超出視界則不套用（交由 CSS 預設置中）
+    function restorePosition(modal) {
+        let pos = null;
+        try { pos = JSON.parse(store.get(POS_KEY, '') || 'null'); } catch (e) { pos = null; }
+        if (!pos || !Number.isFinite(pos.left) || !Number.isFinite(pos.top)) return;
+        // 至少讓標題列留在畫面內才還原（水平留 100px、垂直留 40px 可抓）
+        const maxLeft = window.innerWidth - 100;
+        const maxTop = window.innerHeight - 40;
+        if (pos.left < 0 || pos.top < 0 || pos.left > maxLeft || pos.top > maxTop) return; // 超出視界 → 回預設位置
+        modal.style.left = pos.left + 'px';
+        modal.style.top = pos.top + 'px';
+        modal.style.transform = 'none';
+    }
+
     function showDialog(entries) {
         closeDialog();
         // host 覆蓋整頁但不吃滑鼠事件（pointer-events: none），只有 modal 本身可互動；
@@ -222,7 +237,7 @@
 
         shadow.innerHTML = `
             <style>
-                .modal { pointer-events: auto; position: fixed; top: 15vh; left: 50%; transform: translateX(-50%); width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); background: #1e1e1e; color: #e0e0e0; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.5); display: flex; flex-direction: column; overflow: hidden; font-family: Arial, "Microsoft JhengHei", sans-serif; }
+                .modal { pointer-events: auto; position: fixed; top: 15vh; left: 50%; transform: translateX(-50%); width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); background: rgba(30,30,30,.5); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); color: #e0e0e0; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.5); display: flex; flex-direction: column; overflow: hidden; font-family: Arial, "Microsoft JhengHei", sans-serif; }
                 .head { padding: 12px 16px; border-bottom: 1px solid #333; cursor: move; user-select: none; }
                 .head h2 { margin: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
                 .head .host { color: #999; font-weight: normal; }
@@ -271,6 +286,11 @@
         // ── 拖拽：抓標題列可移動整個視窗（避免擋到視線）────────────────────
         const modal = $('.modal');
         const head = $('.head');
+
+        // 還原上次位置；若位置已超出目前視界（例如換了較小螢幕、或上次拖到邊角外）
+        // 就忽略、維持 CSS 預設置中位置。
+        restorePosition(modal);
+
         let drag = null;
         const onMove = (e) => {
             if (!drag) return;
@@ -278,7 +298,13 @@
             modal.style.top = (e.clientY - drag.dy) + 'px';
             modal.style.transform = 'none';
         };
-        const onUp = () => { drag = null; };
+        const onUp = () => {
+            if (drag) {   // 只有真的拖動過才記住位置
+                const r = modal.getBoundingClientRect();
+                store.set(POS_KEY, JSON.stringify({ left: Math.round(r.left), top: Math.round(r.top) }));
+            }
+            drag = null;
+        };
         head.addEventListener('mousedown', (e) => {
             const r = modal.getBoundingClientRect();
             drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
