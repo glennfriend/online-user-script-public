@@ -2,7 +2,7 @@
 // @name         表單記憶助手
 // @name:en      Form Memory
 // @namespace    https://github.com/glennfriend/online-user-script-public
-// @version      1.0.1
+// @version      1.0.2
 // @description  在任何有表單的頁面：F1 儲存目前所有 input / select / checkbox / radio 的值，F2 叫出清單，勾選要套用的項目後回寫。設定值依網址（host + path）分別記憶。
 // @author       Glenn
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/form-memory.user.js
@@ -195,7 +195,9 @@
 
     // ── 讀取用的勾選視窗（Shadow DOM，避免被頁面樣式影響）─────────────────
     let hostEl = null;
+    let dragCleanup = null;      // 拖拽用的 window 事件清理函式
     function closeDialog() {
+        if (dragCleanup) { dragCleanup(); dragCleanup = null; }
         if (hostEl) { hostEl.remove(); hostEl = null; }
         document.removeEventListener('keydown', onDialogKey, true);
     }
@@ -205,8 +207,10 @@
 
     function showDialog(entries) {
         closeDialog();
+        // host 覆蓋整頁但不吃滑鼠事件（pointer-events: none），只有 modal 本身可互動；
+        // 因此不會蓋住、也不會變暗背景頁面。
         hostEl = document.createElement('div');
-        hostEl.style.cssText = 'all: initial; position: fixed; inset: 0; z-index: 2147483647;';
+        hostEl.style.cssText = 'all: initial; position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;';
         const shadow = hostEl.attachShadow({ mode: 'open' });
 
         const rows = entries.map((e, i) => `
@@ -218,11 +222,10 @@
 
         shadow.innerHTML = `
             <style>
-                .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; font-family: Arial, "Microsoft JhengHei", sans-serif; }
-                .modal { width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); background: #1e1e1e; color: #e0e0e0; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.5); display: flex; flex-direction: column; overflow: hidden; }
-                .head { padding: 14px 16px; border-bottom: 1px solid #333; }
-                .head h2 { margin: 0; font-size: 16px; }
-                .head p { margin: 4px 0 0; font-size: 12px; color: #999; word-break: break-all; }
+                .modal { pointer-events: auto; position: fixed; top: 15vh; left: 50%; transform: translateX(-50%); width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); background: #1e1e1e; color: #e0e0e0; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.5); display: flex; flex-direction: column; overflow: hidden; font-family: Arial, "Microsoft JhengHei", sans-serif; }
+                .head { padding: 12px 16px; border-bottom: 1px solid #333; cursor: move; user-select: none; }
+                .head h2 { margin: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .head .host { color: #999; font-weight: normal; }
                 .tools { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid #333; font-size: 13px; color: #bbb; }
                 .list { overflow-y: auto; padding: 6px 8px; flex: 1; }
                 .row { display: flex; align-items: center; gap: 10px; padding: 8px 8px; border-radius: 6px; cursor: pointer; }
@@ -234,23 +237,19 @@
                 button { font-size: 14px; padding: 8px 16px; border-radius: 6px; border: 1px solid #444; background: #2a2a2a; color: #e0e0e0; cursor: pointer; }
                 button.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
                 button:hover { filter: brightness(1.15); }
-                .linklike { background: none; border: none; color: #7fd1ff; padding: 0; font-size: 13px; }
             </style>
-            <div class="backdrop">
-                <div class="modal">
-                    <div class="head">
-                        <h2>讀取表單設定</h2>
-                        <p>${esc(location.host + location.pathname)}　共 ${entries.length} 項</p>
-                    </div>
-                    <div class="tools">
-                        <input type="checkbox" id="all" checked>
-                        <label for="all">全選 / 全不選</label>
-                    </div>
-                    <div class="list">${rows}</div>
-                    <div class="foot">
-                        <button class="cancel">取消</button>
-                        <button class="primary apply">讀取（套用勾選項目）</button>
-                    </div>
+            <div class="modal">
+                <div class="head">
+                    <h2>表單設定 (${entries.length}) <span class="host">by ${esc(location.host + location.pathname)}</span></h2>
+                </div>
+                <div class="tools">
+                    <input type="checkbox" id="all" checked>
+                    <label for="all">全選 / 全不選</label>
+                </div>
+                <div class="list">${rows}</div>
+                <div class="foot">
+                    <button class="cancel">取消</button>
+                    <button class="primary apply">讀取（套用勾選項目）</button>
                 </div>
             </div>`;
 
@@ -259,7 +258,6 @@
         const $ = (sel) => shadow.querySelector(sel);
         const chks = () => Array.from(shadow.querySelectorAll('.chk'));
 
-        $('.backdrop').addEventListener('click', (e) => { if (e.target === $('.backdrop')) closeDialog(); });
         $('.cancel').addEventListener('click', closeDialog);
         $('#all').addEventListener('change', (e) => { chks().forEach((c) => { c.checked = e.target.checked; }); });
         $('.apply').addEventListener('click', () => {
@@ -269,6 +267,32 @@
             closeDialog();
             toast(`已套用 ${ok} 個欄位` + (miss ? `，${miss} 個在頁面上找不到` : ''));
         });
+
+        // ── 拖拽：抓標題列可移動整個視窗（避免擋到視線）────────────────────
+        const modal = $('.modal');
+        const head = $('.head');
+        let drag = null;
+        const onMove = (e) => {
+            if (!drag) return;
+            modal.style.left = (e.clientX - drag.dx) + 'px';
+            modal.style.top = (e.clientY - drag.dy) + 'px';
+            modal.style.transform = 'none';
+        };
+        const onUp = () => { drag = null; };
+        head.addEventListener('mousedown', (e) => {
+            const r = modal.getBoundingClientRect();
+            drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+            modal.style.left = r.left + 'px';
+            modal.style.top = r.top + 'px';
+            modal.style.transform = 'none';
+            e.preventDefault();
+        });
+        window.addEventListener('mousemove', onMove, true);
+        window.addEventListener('mouseup', onUp, true);
+        dragCleanup = () => {
+            window.removeEventListener('mousemove', onMove, true);
+            window.removeEventListener('mouseup', onUp, true);
+        };
 
         document.addEventListener('keydown', onDialogKey, true);
     }
