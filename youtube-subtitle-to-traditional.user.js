@@ -2,7 +2,9 @@
 // @name         YouTube 字幕自動轉繁體
 // @name:en      YouTube Auto Switch to Traditional Chinese Subtitles
 // @namespace    https://github.com/glennguan/youtube-subtitle-to-traditional
-// @version      1.1.0
+// @version      1.1.1
+// @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-subtitle-to-traditional.user.js
+// @downloadURL  https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-subtitle-to-traditional.user.js
 // @description  看 YouTube 時，若目前字幕是簡體中文：有繁體字幕軌就切過去；沒有但可翻譯就自動翻成繁體中文（zh-Hant）。載入後持續盯場，撐過 YouTube 把字幕重置回簡體的情況。
 // @author       Glenn
 // @match        https://www.youtube.com/*

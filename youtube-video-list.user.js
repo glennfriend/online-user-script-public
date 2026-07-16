@@ -1,7 +1,9 @@
 // ==UserScript==
 // @name         YouTube 頁面助手
 // @namespace    browser-tools
-// @version      4.6
+// @version      4.7
+// @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-video-list.user.js
+// @downloadURL  https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-video-list.user.js
 // @description  浮動助手, 依頁面顯示不同功能選單
 // @match        https://www.youtube.com/*
 // @grant        GM_setValue
@@ -11,7 +13,7 @@
 
 (function () {
     'use strict';
-    console.log('[YT助手 v4.6] 腳本已載入，頁面:', location.pathname);
+    console.log('[YT助手 v4.7] 腳本已載入，頁面:', location.pathname);
 
     // ╔════════════════════════════════════════════════════════════════════════╗
     // ║                                                                      ║
