@@ -2,7 +2,7 @@
 // @name         表單記憶助手
 // @name:en      Form Memory
 // @namespace    https://github.com/glennfriend/online-user-script-public
-// @version      1.0.7
+// @version      1.0.8
 // @description  在任何有表單的頁面：F1 儲存目前所有 input / select / checkbox / radio 的值，F2 叫出清單，勾選要套用的項目後回寫。設定值依網址（host + path）分別記憶。
 // @author       Glenn
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/form-memory.user.js
@@ -23,7 +23,8 @@
  * 操作：
  *   F1  儲存目前頁面所有欄位的值（input / select / checkbox / radio / textarea）。
  *   F2  叫出清單視窗，逐項顯示將被套用的值；每項前面有 checkbox（預設全選），
- *       按「讀取」只把有勾選的值回寫到頁面。
+ *       按「讀取」只把有勾選的值回寫到頁面。每列右側有「🗑」可刪除該筆已存的值
+ *       （例如清掉誤存的內容）。
  *
  * 行為細節：
  *   - 只記「有值」的欄位：空白輸入框、未勾選的 checkbox 不會被記，清單保持乾淨。
@@ -259,6 +260,7 @@
                 <input type="checkbox" class="chk" data-i="${i}" checked>
                 <span class="lbl">${esc(e.label)}</span>
                 <span class="val" title="${esc(e.display)}">${esc(e.display)}</span>
+                <button type="button" class="del" data-i="${i}" title="刪除此筆已儲存的值">🗑</button>
             </label>`).join('');
 
         shadow.innerHTML = `
@@ -285,8 +287,11 @@
                 .row { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
                 .row:hover { background: var(--hover); }
                 input[type=checkbox] { width: 16px; height: 16px; flex: 0 0 auto; margin: 0; cursor: pointer; accent-color: var(--accent); }
-                .row .lbl { flex: 0 0 38%; color: var(--text-hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .row .lbl { flex: 0 0 34%; color: var(--text-hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                 .row .val { flex: 1; color: var(--value); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .row .del { flex: 0 0 auto; font-size: 13px; line-height: 1; padding: 4px 6px; border: none; border-radius: 6px; background: transparent; color: var(--text-lo); opacity: .55; cursor: pointer; }
+                .row:hover .del { opacity: 1; }
+                .row .del:hover { background: rgba(255,255,255,.1); color: #ff9592; }
                 .foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border); }
                 button { font-size: 14px; font-weight: 500; padding: 8px 16px; border-radius: 8px; cursor: pointer; transition: background .12s, border-color .12s; }
                 button.cancel { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); color: var(--text-hi); }
@@ -296,7 +301,7 @@
             </style>
             <div class="modal">
                 <div class="head">
-                    <h2>表單設定 (${entries.length}) <span class="host">by ${esc(location.host + location.pathname)}</span></h2>
+                    <h2>表單設定 (<span class="cnt">${entries.length}</span>) <span class="host">by ${esc(location.host + location.pathname)}</span></h2>
                 </div>
                 <div class="tools">
                     <input type="checkbox" id="all" checked>
@@ -316,6 +321,19 @@
 
         $('.cancel').addEventListener('click', closeDialog);
         $('#all').addEventListener('change', (e) => { chks().forEach((c) => { c.checked = e.target.checked; }); });
+
+        // 每列「🗑 刪除」：把該筆從儲存中移除（以 DOM 上剩餘的列為準重新寫回）
+        shadow.querySelectorAll('.del').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault(); e.stopPropagation(); // 別觸發 label 的勾選
+                btn.closest('.row').remove();
+                const remaining = chks().map((c) => entries[+c.dataset.i]);
+                store.set(pageKey(), JSON.stringify(remaining));
+                const cnt = $('.cnt'); if (cnt) cnt.textContent = remaining.length;
+                if (remaining.length === 0) { closeDialog(); toast('已刪除，這個頁面已無儲存的設定'); }
+                else { toast('已刪除該筆'); }
+            });
+        });
         $('.apply').addEventListener('click', () => {
             const selected = chks().filter((c) => c.checked).map((c) => entries[+c.dataset.i]);
             let ok = 0, miss = 0;
