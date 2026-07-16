@@ -2,7 +2,7 @@
 // @name         表單記憶助手
 // @name:en      Form Memory
 // @namespace    https://github.com/glennfriend/online-user-script-public
-// @version      1.0.4
+// @version      1.0.5
 // @description  在任何有表單的頁面：F1 儲存目前所有 input / select / checkbox / radio 的值，F2 叫出清單，勾選要套用的項目後回寫。設定值依網址（host + path）分別記憶。
 // @author       Glenn
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/form-memory.user.js
@@ -241,7 +241,7 @@
                    surface=slate2、border/hover=白色 alpha、text-hi=slate12、text-lo=slate11、
                    accent=blue9、accent-hover=blue10、value=blue11。皆符合 WCAG 對比。 */
                 :host {
-                    --surface: rgba(24,25,27,.85);   /* slate2 @85%：霜面玻璃底色 */
+                    --surface: rgba(24,25,27,.6);    /* slate2 @60%：偏透明霜面玻璃底色 */
                     --border: rgba(255,255,255,.08); /* 分隔線 / 邊框 */
                     --hover: rgba(255,255,255,.06);  /* 列 hover 底 */
                     --text-hi: #edeef0;              /* slate12：主要文字 */
@@ -250,7 +250,8 @@
                     --accent-hover: #1372d4;         /* 按鈕 hover：仍達 AA（4.79:1）且較亮做回饋 */
                     --value: #70b8ff;                /* blue11：值文字（對比 8.37:1）*/
                 }
-                .modal { pointer-events: auto; position: fixed; top: 15vh; left: 50%; transform: translateX(-50%); width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); background: var(--surface); -webkit-backdrop-filter: blur(16px) saturate(180%); backdrop-filter: blur(16px) saturate(180%); color: var(--text-hi); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 48px rgba(0,0,0,.5); display: flex; flex-direction: column; overflow: hidden; font-family: -apple-system, "Segoe UI", Roboto, "Microsoft JhengHei", Arial, sans-serif; font-size: 14px; }
+                /* 偏透明時文字對比會隨背景浮動，靠 text-shadow 讓文字在亮/暗背景上都清楚 */
+                .modal { pointer-events: auto; position: fixed; top: 15vh; left: 50%; transform: translateX(-50%); width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); background: var(--surface); -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%); color: var(--text-hi); text-shadow: 0 1px 3px rgba(0,0,0,.7); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; box-shadow: 0 16px 48px rgba(0,0,0,.55); display: flex; flex-direction: column; overflow: hidden; font-family: -apple-system, "Segoe UI", Roboto, "Microsoft JhengHei", Arial, sans-serif; font-size: 14px; }
                 .head { padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: move; user-select: none; }
                 .head h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
                 .head .host { color: var(--text-lo); font-weight: 400; font-size: 13px; }
