@@ -2,7 +2,7 @@
 // @name         Facebook 訪客解鎖
 // @name:en      Facebook Guest View (remove login wall)
 // @namespace    https://github.com/glennfriend/online-user-script-public
-// @version      2.1.0
+// @version      2.2.0
 // @description  未登入瀏覽 Facebook 公開貼文時，用原生關閉鈕關掉一直跳出的登入彈窗，並隱藏上方登入列與下方「登入或註冊」橫幅，讓訪客能順暢看內容。全程不移除任何 DOM 節點。已登入者完全不受影響。
 // @author       Glenn
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/facebook-guest-view.user.js
@@ -20,11 +20,11 @@
  *       排除擋路的元素，讓訪客能正常閱讀。裝好即自動運作，無需操作。
  *
  * 做的事（都只在「未登入」時）：
- *   1. 登入彈窗：分層處理，會一直跳出所以持續監看。
- *      (1) 按它自己的「關閉」鈕 →（最乾淨）FB 會自行清掉遮罩、解除捲動鎖。
- *      (2) 沒有關閉鈕 → 送 Escape，仍是原生關閉途徑。
- *      (3) 都無效（FB 在某些頁面給的登入牆根本沒有 X、關不掉）→ 降級：強制
- *          隱藏彈窗、讓殘留遮罩失效、解除捲動鎖，讓你至少能捲回去看已載入
+ *   1. 登入彈窗：分層處理，一發現就依序升級，全程 ≤ 約 0.5 秒。
+ *      (1) t=0   按它自己的「關閉」鈕 →（最乾淨）FB 會自行清掉遮罩、解除捲動鎖。
+ *      (2) t=150 還在 → 送 Escape，仍是原生關閉途徑。
+ *      (3) t=300 還在（FB 某些頁面的登入牆根本沒有 X、關不掉）→ 降級：隱藏
+ *          彈窗所在的整個 portal 外層、解除捲動鎖，讓你至少能捲回去看已載入
  *          的內容。降級一律用「改樣式」而非移除節點。
  *   2. 上方登入列 [role="banner"]：用 CSS 隱藏。
  *   3. 下方「登入或註冊 Facebook…」橫幅：設 display:none 隱藏。
@@ -76,46 +76,65 @@
         (document.head || document.documentElement).appendChild(style);
     }
 
-    const TRY_ATTR = 'data-fbguest-tries';    // 已嘗試原生關閉的次數
+    const SEEN_MARK = 'data-fbguest-seen';     // 已排定處理，避免重複排程
     const HIDDEN_MARK = 'data-fbguest-hidden'; // 已降級強制隱藏
 
-    // ── 模組：關閉登入彈窗（分層策略，全程不移除節點）──────────────────────
-    // 第 1 層（最乾淨）：按彈窗自己的關閉鈕 → FB 會自行清理遮罩與捲動鎖。
-    // 第 2 層：沒有關閉鈕時送 Escape，仍屬原生關閉途徑。
-    // 第 3 層（降級）：上述都無效（例如 FB 在某些頁面給出「不可關閉」的登入牆，
-    //   右上角根本沒有 X）→ 強制隱藏彈窗並解除遮罩與捲動鎖，讓使用者至少能
-    //   捲回去讀已經載入的內容。此時 FB 不會幫我們清理遮罩，所以要自己來。
+    // ── 模組：關閉登入彈窗（分層策略，時間驅動，全程不移除節點）─────────────
+    // 一發現彈窗就立刻依序升級，總耗時 ≤ 約 0.3 秒：
+    //   t=0    第 1 層：按彈窗自己的關閉鈕 → 最乾淨，FB 會自行清遮罩與捲動鎖。
+    //   t=150  第 2 層：還在 → 送 Escape，仍屬原生關閉途徑。
+    //   t=300  第 3 層：還在 → 降級強制隱藏（FB 某些頁面的登入牆沒有 X、關不掉）。
     function closeLoginDialogs() {
         document.querySelectorAll('[role="dialog"]').forEach((d) => {
             const looksLikeLogin = d.querySelector('input[type="password"]') ||
                 DIALOG_LOGIN_KW.test(d.textContent || '');
-            if (!looksLikeLogin) return;                 // 其他對話框不碰
-            if (d.getAttribute(HIDDEN_MARK)) return;     // 已降級處理過
+            if (!looksLikeLogin) return;              // 其他對話框不碰
+            if (d.getAttribute(SEEN_MARK)) return;    // 已排定升級流程
+            d.setAttribute(SEEN_MARK, '1');
 
-            const tries = +(d.getAttribute(TRY_ATTR) || 0);
+            const stillUp = () => d.isConnected && getComputedStyle(d).display !== 'none';
+
             const btn = d.querySelector(CLOSE_SELECTOR);
+            if (btn) btn.click();                     // 第 1 層：立即原生關閉
 
-            if (btn && tries < 3) {                      // 第 1 層：原生關閉鈕
-                d.setAttribute(TRY_ATTR, String(tries + 1));
-                btn.click();
-                return;
-            }
-            if (!btn && tries < 2) {                     // 第 2 層：Escape
-                d.setAttribute(TRY_ATTR, String(tries + 1));
+            setTimeout(() => {                        // 第 2 層
+                if (!stillUp()) return;
                 document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
-                return;
-            }
+            }, 100);
 
-            forceDismiss(d);                             // 第 3 層：降級強制隱藏
+            setTimeout(() => {                        // 第 3 層
+                if (!stillUp()) return;
+                forceDismiss(d);
+            }, 200);
         });
     }
 
-    // ── 降級處理：隱藏彈窗 + 解除它留下的遮罩（不移除任何節點）──────────────
+    // ── 降級處理：隱藏彈窗所在的整個 portal 外層（不移除任何節點）────────────
+    // 關鍵：彈窗外面疊著多層「滿螢幕且 pointer-events:auto」的 portal 容器。
+    // 只隱藏彈窗本身不夠 —— 那些外層仍蓋滿畫面接收滑鼠與滾輪，而它們自己不是
+    // 捲動容器，於是滾輪無處可捲 → 畫面看得到卻捲不動。因此往上找到「除了這個
+    // 彈窗以外不含任何其他文字」的最外層容器，整層 display:none。
+    // 安全性：以「textContent 等於彈窗文字」為界，一旦某層含有其他內容就停止
+    // 往上，所以永遠不會蓋掉頁面內容。
+    function outermostDialogWrapper(dialog) {
+        const dialogText = (dialog.textContent || '').trim();
+        let best = dialog, el = dialog;
+        while (el.parentElement && el.parentElement !== document.body) {
+            el = el.parentElement;
+            if ((el.textContent || '').trim() !== dialogText) break; // 含其他內容 → 停
+            best = el;
+        }
+        return best;
+    }
+
     function forceDismiss(dialog) {
-        dialog.style.setProperty('display', 'none', 'important');
+        const wrapper = outermostDialogWrapper(dialog);
+        wrapper.style.setProperty('display', 'none', 'important');
+        wrapper.setAttribute(HIDDEN_MARK, '1');
         dialog.setAttribute(HIDDEN_MARK, '1');
-        console.log(LOG, '此彈窗無法用原生方式關閉，改為強制隱藏並解除遮罩');
-        neutralizeLeftoverOverlays();
+        console.log(LOG, '此彈窗無法用原生方式關閉，已隱藏其 portal 外層並解除捲動鎖');
+        neutralizeLeftoverOverlays();  // 高成本，只在此處跑一次
+        deepUnlockScroll();            // 同上
     }
 
     // ── 模組：讓殘留的全螢幕遮罩失效（只改樣式，永不移除節點）──────────────
@@ -145,8 +164,15 @@
     }
 
     // ── 模組：隱藏下方「登入或註冊」橫幅（設樣式，不移除節點）─────────────
+    let hiddenBanner = null;   // 快取：已隱藏過就不再重掃（TreeWalker 成本不低）
+    let lastBannerScan = 0;
     function hideBottomBanner() {
         if (!document.body) return;
+        if (hiddenBanner && hiddenBanner.isConnected && hiddenBanner.style.display === 'none') return;
+        // 還沒找到時也不能每輪都掃全文，最多每 500ms 掃一次，避免拖慢主執行緒
+        const now = Date.now();
+        if (now - lastBannerScan < 500) return;
+        lastBannerScan = now;
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
             acceptNode: (n) => BOTTOM_KW.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
         });
@@ -156,6 +182,7 @@
         while (el && el !== document.body) {
             if (getComputedStyle(el).position === 'fixed') {
                 el.style.setProperty('display', 'none', 'important');
+                hiddenBanner = el;
                 return;
             }
             el = el.parentElement;
@@ -164,6 +191,7 @@
 
     // ── 模組：解除捲動鎖定（僅在真的被鎖時才動 html/body）─────────────────
     // html/body 在 React 根容器之外，調整它們不影響 React。
+    // 常態使用：只檢查 html/body，成本極低，可以每輪跑。
     function unlockScroll() {
         [document.documentElement, document.body].forEach((el) => {
             if (!el) return;
@@ -176,8 +204,11 @@
                 el.style.removeProperty('top');
             }
         });
-        // 降級情境：彈窗常把「裝著內容的大容器」鎖成 overflow:hidden。只針對
-        // 「幾乎滿高 + 真的有大量文字」的容器解鎖，且只改樣式，不動結構。
+    }
+
+    // 只在降級時呼叫一次：彈窗有時把「裝著內容的大容器」鎖成 overflow:hidden。
+    // 會逐一取 computed style，成本高，因此絕不放進常態迴圈。
+    function deepUnlockScroll() {
         document.querySelectorAll('body *').forEach((e) => {
             const r = e.getBoundingClientRect();
             if (r.height < innerHeight * 0.8) return;
@@ -197,16 +228,29 @@
     }
 
     // ── 監看 DOM：Facebook 會重複插入登入彈窗與橫幅 ───────────────────────
+    // debounce 壓到 50ms，讓「發現彈窗」到「開始處理」幾乎無延遲；
+    // 搭配上面的時間驅動升級（150ms / 300ms），整體反應在 0.5 秒內完成。
     let timer = null;
-    const schedule = () => { if (timer) return; timer = setTimeout(() => { timer = null; cleanup(); }, 200); };
+    const schedule = () => { if (timer) return; timer = setTimeout(() => { timer = null; cleanup(); }, 50); };
 
     injectHidingCSS();
-    new MutationObserver(() => { injectHidingCSS(); schedule(); })
-        .observe(document.documentElement, { childList: true, subtree: true });
+    new MutationObserver(() => {
+        injectHidingCSS();
+        // 彈窗要「看到就處理」，不進 debounce：這個查詢很便宜（只掃 role=dialog），
+        // 因此偵測延遲趨近於 0，配合 100ms/200ms 升級可在 0.5 秒內完成。
+        if (!isLoggedIn() && document.querySelector('[role="dialog"]:not([' + SEEN_MARK + '])')) {
+            try { closeLoginDialogs(); } catch (e) { console.warn(LOG, 'dialog', e); }
+        }
+        schedule();  // 其餘較重的工作維持 debounce
+    }).observe(document.documentElement, { childList: true, subtree: true });
 
     cleanup();
     document.addEventListener('DOMContentLoaded', cleanup);
     window.addEventListener('load', cleanup);
+    // 保險：MutationObserver 偶爾會漏（例如彈窗只改樣式而非新增節點），
+    // 前 15 秒每 100ms 主動巡一次，之後交給 observer。
+    let ticks = 0;
+    const iv = setInterval(() => { cleanup(); if (++ticks > 150) clearInterval(iv); }, 100);
 
     console.log(LOG, '已啟用（僅未登入時作用，不移除任何節點）');
 })();
