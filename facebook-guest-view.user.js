@@ -2,7 +2,7 @@
 // @name         Facebook 訪客解鎖
 // @name:en      Facebook Guest View (remove login wall)
 // @namespace    https://github.com/glennfriend/online-user-script-public
-// @version      2.0.0
+// @version      2.1.0
 // @description  未登入瀏覽 Facebook 公開貼文時，用原生關閉鈕關掉一直跳出的登入彈窗，並隱藏上方登入列與下方「登入或註冊」橫幅，讓訪客能順暢看內容。全程不移除任何 DOM 節點。已登入者完全不受影響。
 // @author       Glenn
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/facebook-guest-view.user.js
@@ -20,8 +20,12 @@
  *       排除擋路的元素，讓訪客能正常閱讀。裝好即自動運作，無需操作。
  *
  * 做的事（都只在「未登入」時）：
- *   1. 登入彈窗：按它自己的「關閉」鈕（找不到則送 Escape）關掉，會一直跳出所以
- *      持續監看。
+ *   1. 登入彈窗：分層處理，會一直跳出所以持續監看。
+ *      (1) 按它自己的「關閉」鈕 →（最乾淨）FB 會自行清掉遮罩、解除捲動鎖。
+ *      (2) 沒有關閉鈕 → 送 Escape，仍是原生關閉途徑。
+ *      (3) 都無效（FB 在某些頁面給的登入牆根本沒有 X、關不掉）→ 降級：強制
+ *          隱藏彈窗、讓殘留遮罩失效、解除捲動鎖，讓你至少能捲回去看已載入
+ *          的內容。降級一律用「改樣式」而非移除節點。
  *   2. 上方登入列 [role="banner"]：用 CSS 隱藏。
  *   3. 下方「登入或註冊 Facebook…」橫幅：設 display:none 隱藏。
  *   4. 只有在頁面真的被鎖住捲動時，才解除 html/body 的捲動鎖。
@@ -72,20 +76,71 @@
         (document.head || document.documentElement).appendChild(style);
     }
 
-    // ── 模組：關閉登入彈窗（用它自己的關閉鈕，不移除節點）──────────────────
+    const TRY_ATTR = 'data-fbguest-tries';    // 已嘗試原生關閉的次數
+    const HIDDEN_MARK = 'data-fbguest-hidden'; // 已降級強制隱藏
+
+    // ── 模組：關閉登入彈窗（分層策略，全程不移除節點）──────────────────────
+    // 第 1 層（最乾淨）：按彈窗自己的關閉鈕 → FB 會自行清理遮罩與捲動鎖。
+    // 第 2 層：沒有關閉鈕時送 Escape，仍屬原生關閉途徑。
+    // 第 3 層（降級）：上述都無效（例如 FB 在某些頁面給出「不可關閉」的登入牆，
+    //   右上角根本沒有 X）→ 強制隱藏彈窗並解除遮罩與捲動鎖，讓使用者至少能
+    //   捲回去讀已經載入的內容。此時 FB 不會幫我們清理遮罩，所以要自己來。
     function closeLoginDialogs() {
         document.querySelectorAll('[role="dialog"]').forEach((d) => {
             const looksLikeLogin = d.querySelector('input[type="password"]') ||
                 DIALOG_LOGIN_KW.test(d.textContent || '');
             if (!looksLikeLogin) return;                 // 其他對話框不碰
+            if (d.getAttribute(HIDDEN_MARK)) return;     // 已降級處理過
 
+            const tries = +(d.getAttribute(TRY_ATTR) || 0);
             const btn = d.querySelector(CLOSE_SELECTOR);
-            if (btn) {
-                btn.click();                             // 原生關閉：FB 會自行清理遮罩與捲動鎖
+
+            if (btn && tries < 3) {                      // 第 1 層：原生關閉鈕
+                d.setAttribute(TRY_ATTR, String(tries + 1));
+                btn.click();
                 return;
             }
-            // 找不到關閉鈕時的備援：送 Escape，同樣是原生關閉途徑
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+            if (!btn && tries < 2) {                     // 第 2 層：Escape
+                d.setAttribute(TRY_ATTR, String(tries + 1));
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+                return;
+            }
+
+            forceDismiss(d);                             // 第 3 層：降級強制隱藏
+        });
+    }
+
+    // ── 降級處理：隱藏彈窗 + 解除它留下的遮罩（不移除任何節點）──────────────
+    function forceDismiss(dialog) {
+        dialog.style.setProperty('display', 'none', 'important');
+        dialog.setAttribute(HIDDEN_MARK, '1');
+        console.log(LOG, '此彈窗無法用原生方式關閉，改為強制隱藏並解除遮罩');
+        neutralizeLeftoverOverlays();
+    }
+
+    // ── 模組：讓殘留的全螢幕遮罩失效（只改樣式，永不移除節點）──────────────
+    // 僅在降級情境下需要。安全限制：頁面已渲染、不碰 React 根容器、只處理
+    // 「沒有文字也沒有媒體」的空層 —— 真正的內容容器不會被影響。
+    function neutralizeLeftoverOverlays() {
+        if (!document.body) return;
+        if ((document.body.innerText || '').trim().length < 200) return;
+        const W = innerWidth, H = innerHeight;
+        document.querySelectorAll('body *').forEach((e) => {
+            const cs = getComputedStyle(e);
+            const r = e.getBoundingClientRect();
+            if (r.width < W * 0.9 || r.height < H * 0.9) return;
+            if ((e.textContent || '').trim().length > 0) return;
+            if (e.querySelector('a,img,video,input,button')) return;
+            if (e.id && /^mount_/.test(e.id)) return;
+            if (cs.pointerEvents !== 'none') e.style.setProperty('pointer-events', 'none', 'important');
+            const m = (cs.backgroundColor || '').match(/rgba?\(([^)]+)\)/);
+            const parts = m ? m[1].split(',').map((s) => s.trim()) : [];
+            const alpha = parts.length === 4 ? parseFloat(parts[3]) : (parts.length === 3 ? 1 : 0);
+            if (alpha > 0) e.style.setProperty('background-color', 'transparent', 'important');
+            if (cs.backdropFilter && cs.backdropFilter !== 'none') {
+                e.style.setProperty('backdrop-filter', 'none', 'important');
+                e.style.setProperty('-webkit-backdrop-filter', 'none', 'important');
+            }
         });
     }
 
@@ -120,6 +175,16 @@
                 el.style.setProperty('position', 'static', 'important');
                 el.style.removeProperty('top');
             }
+        });
+        // 降級情境：彈窗常把「裝著內容的大容器」鎖成 overflow:hidden。只針對
+        // 「幾乎滿高 + 真的有大量文字」的容器解鎖，且只改樣式，不動結構。
+        document.querySelectorAll('body *').forEach((e) => {
+            const r = e.getBoundingClientRect();
+            if (r.height < innerHeight * 0.8) return;
+            const cs = getComputedStyle(e);
+            if (cs.overflowY !== 'hidden') return;
+            if ((e.textContent || '').trim().length < 200) return;
+            e.style.setProperty('overflow-y', 'auto', 'important');
         });
     }
 
