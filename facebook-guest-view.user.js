@@ -2,7 +2,7 @@
 // @name         Facebook 訪客解鎖
 // @name:en      Facebook Guest View (remove login wall)
 // @namespace    https://github.com/glennfriend/online-user-script-public
-// @version      1.0.3
+// @version      1.0.4
 // @description  未登入瀏覽 Facebook 公開貼文時，自動關掉一直跳出的登入彈窗，並移除上方登入列與下方「登入或註冊」橫幅，讓訪客能順暢看內容。已登入者完全不受影響。
 // @author       Glenn
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/facebook-guest-view.user.js
@@ -21,9 +21,10 @@
  *
  * 會清除的三個東西（都只在「未登入」時）：
  *   1. 登入彈窗 [role="dialog"]（會一直跳出來，故持續監看、出現就移除）。
- *   2. 登入牆殘留的全螢幕攔截層：包含半透明遮罩（畫面變灰）與隱形的
- *      pointer-events:auto 空層（畫面正常卻點不動、捲不動）。判斷「無文字
- *      且不含 a/img/video/input/button」才刪，不會碰到真正的內容容器。
+ *   2. 登入牆殘留的全螢幕擋路層：半透明遮罩（畫面變灰）與隱形的
+ *      pointer-events:auto 空層（畫面正常卻點不動、捲不動）。
+ *      這類層「不移除節點」，只改樣式解除干擾（見下方 neutralize 說明），
+ *      以免誤刪 Facebook 的 React 根容器造成整頁空白。
  *   3. 上方登入列 [role="banner"]。
  *   4. 下方「登入或註冊 Facebook…」橫幅（position:fixed 貼底的那條）。
  *   並解除 Facebook 對頁面捲動的鎖定。
@@ -84,6 +85,8 @@
 
     // ── 模組：移除下方「登入或註冊」橫幅 ──────────────────────────────────
     // 以文字定位，再往上找到 position:fixed 的容器整條移除。
+    // 安全限制：若該容器高度超過視窗一半（表示爬過頭、可能是內容容器）就不刪，
+    // 只隱藏文字所在的那一小塊，避免誤刪頁面內容。
     function removeBottomBanner() {
         if (!document.body) return;
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
@@ -93,30 +96,62 @@
         if (!node) return;
         let el = node.parentElement;
         while (el && el !== document.body) {
-            if (getComputedStyle(el).position === 'fixed') { el.remove(); return; }
+            if (getComputedStyle(el).position === 'fixed') {
+                if (el.getBoundingClientRect().height < innerHeight * 0.5) el.remove();
+                else el.style.setProperty('display', 'none', 'important');
+                return;
+            }
             el = el.parentElement;
         }
     }
 
-    // ── 模組：移除擋路的全螢幕攔截層 ──────────────────────────────────────
-    // 登入牆殘留的「隱形攔截層」：滿螢幕、pointer-events:auto，但內容全空
-    // （沒有文字、沒有連結/圖片）。它壓在最上層，會吃掉所有點擊與滾輪，
-    // 造成「畫面看得到卻點不動、捲不動」。半透明遮罩（畫面變灰）也一併清。
+    // ── 模組：解除全螢幕擋路層的干擾（永不移除節點）────────────────────────
+    // 登入牆會留下兩種滿螢幕的擋路層：
+    //   (1) 半透明遮罩 → 畫面變灰；(2) 隱形的 pointer-events:auto 空層 →
+    //   畫面正常卻吃掉所有點擊與滾輪（點不動、捲不動）。
     //
-    // 安全限制：判斷「無文字內容 + 不含 a/img/video/input/button」才刪，
-    // 因此任何真正的內容容器（含 FB 的捲動容器）都不會被誤刪。
-    // 註：不能只看 childElementCount===0 —— 實測 FB 的攔截層帶有一個空殼子
-    //     元素，光看子元素數會漏掉它。
-    function removeBlockingOverlays() {
+    // 這裡刻意「不移除節點」，只做兩件無破壞性的事：讓它不吃事件、把遮罩背景
+    // 改透明。原因：Facebook 的 React 根容器（#mount_…）在頁面剛載入、內容還
+    // 沒渲染時，本身就是「滿螢幕且完全空白」的，任何以「空層」為條件的刪除規則
+    // 都會誤刪它，導致整頁永久空白。改成只調整樣式，即使判斷失準也不會弄壞頁面。
+    const MARK = 'data-fbguest-neutralized';
+
+    function neutralizeBlockingOverlays() {
+        if (!document.body) return;
+        // 內容還沒渲染出來前一律不動作（此時無法區分「空的根容器」與「空的遮罩」）
+        if ((document.body.innerText || '').trim().length < 200) return;
+
+        // 先還原：先前被判定為擋路層、但現在已長出真實內容的元素（避免誤傷）
+        document.querySelectorAll('[' + MARK + ']').forEach((e) => {
+            if ((e.textContent || '').trim().length > 0 || e.querySelector('a,img,video,input,button')) {
+                e.style.removeProperty('pointer-events');
+                e.removeAttribute(MARK);
+            }
+        });
+
         const W = innerWidth, H = innerHeight;
         document.querySelectorAll('body *').forEach((e) => {
             const cs = getComputedStyle(e);
-            if (cs.pointerEvents === 'none') return;                // 本來就不擋事件
             const r = e.getBoundingClientRect();
-            if (r.width < W * 0.9 || r.height < H * 0.9) return;     // 需近全螢幕
-            if ((e.textContent || '').trim().length > 0) return;     // 有文字 → 是內容
-            if (e.querySelector('a,img,video,input,button')) return; // 有媒體/互動 → 是內容
-            e.remove();
+            if (r.width < W * 0.9 || r.height < H * 0.9) return;      // 需近全螢幕
+            if ((e.textContent || '').trim().length > 0) return;      // 有文字 → 是內容容器
+            if (e.querySelector('a,img,video,input,button')) return;  // 有媒體/互動 → 是內容
+            if (e.id && /^mount_/.test(e.id)) return;                 // 永不碰 React 根容器
+
+            // 隱形攔截層：不吃事件即可，讓點擊/滾輪穿透到底下的內容
+            if (cs.pointerEvents !== 'none') {
+                e.style.setProperty('pointer-events', 'none', 'important');
+                e.setAttribute(MARK, '1'); // 做記號，日後若長出內容可還原
+            }
+            // 半透明遮罩：把灰幕效果去掉（不移除節點）
+            const m = (cs.backgroundColor || '').match(/rgba?\(([^)]+)\)/);
+            const parts = m ? m[1].split(',').map((s) => s.trim()) : [];
+            const alpha = parts.length === 4 ? parseFloat(parts[3]) : (parts.length === 3 ? 1 : 0);
+            if (alpha > 0) e.style.setProperty('background-color', 'transparent', 'important');
+            if (cs.backdropFilter && cs.backdropFilter !== 'none') {
+                e.style.setProperty('backdrop-filter', 'none', 'important');
+                e.style.setProperty('-webkit-backdrop-filter', 'none', 'important');
+            }
         });
     }
 
@@ -124,7 +159,7 @@
     function cleanup() {
         if (isLoggedIn()) return; // 已登入者不動任何東西
         try { removeLoginDialogs(); } catch (e) { console.warn(LOG, 'dialog', e); }
-        try { removeBlockingOverlays(); } catch (e) { console.warn(LOG, 'overlay', e); }
+        try { neutralizeBlockingOverlays(); } catch (e) { console.warn(LOG, 'overlay', e); }
         try { removeTopBar(); } catch (e) { console.warn(LOG, 'topbar', e); }
         try { removeBottomBanner(); } catch (e) { console.warn(LOG, 'bottom', e); }
         try { unlockScroll(); } catch (e) { console.warn(LOG, 'scroll', e); }
