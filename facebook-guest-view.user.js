@@ -2,7 +2,7 @@
 // @name         Facebook 訪客解鎖
 // @name:en      Facebook Guest View (remove login wall)
 // @namespace    https://github.com/glennfriend/online-user-script-public
-// @version      1.0.2
+// @version      1.0.3
 // @description  未登入瀏覽 Facebook 公開貼文時，自動關掉一直跳出的登入彈窗，並移除上方登入列與下方「登入或註冊」橫幅，讓訪客能順暢看內容。已登入者完全不受影響。
 // @author       Glenn
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/facebook-guest-view.user.js
@@ -21,8 +21,9 @@
  *
  * 會清除的三個東西（都只在「未登入」時）：
  *   1. 登入彈窗 [role="dialog"]（會一直跳出來，故持續監看、出現就移除）。
- *   2. 彈窗背後擋路的全螢幕空層：半透明遮罩（畫面變灰）與全透明但會攔截
- *      點擊/捲動的攔截層，兩種都清（只刪空層，不碰有內容的容器）。
+ *   2. 登入牆殘留的全螢幕攔截層：包含半透明遮罩（畫面變灰）與隱形的
+ *      pointer-events:auto 空層（畫面正常卻點不動、捲不動）。判斷「無文字
+ *      且不含 a/img/video/input/button」才刪，不會碰到真正的內容容器。
  *   3. 上方登入列 [role="banner"]。
  *   4. 下方「登入或註冊 Facebook…」橫幅（position:fixed 貼底的那條）。
  *   並解除 Facebook 對頁面捲動的鎖定。
@@ -97,25 +98,25 @@
         }
     }
 
-    // ── 模組：移除擋路的全螢幕空層 ────────────────────────────────────────
-    // 登入牆會蓋兩種全螢幕空層：(1) 半透明遮罩 → 畫面變灰；(2) 全透明但
-    // pointer-events:auto 的攔截層 → 不變灰卻擋住點擊/捲動。兩者都要清。
-    // 安全限制：只刪「沒有子元素」的空層，所以有內容的容器（含 FB 的捲動
-    // 容器）永遠不會被誤刪。
+    // ── 模組：移除擋路的全螢幕攔截層 ──────────────────────────────────────
+    // 登入牆殘留的「隱形攔截層」：滿螢幕、pointer-events:auto，但內容全空
+    // （沒有文字、沒有連結/圖片）。它壓在最上層，會吃掉所有點擊與滾輪，
+    // 造成「畫面看得到卻點不動、捲不動」。半透明遮罩（畫面變灰）也一併清。
+    //
+    // 安全限制：判斷「無文字內容 + 不含 a/img/video/input/button」才刪，
+    // 因此任何真正的內容容器（含 FB 的捲動容器）都不會被誤刪。
+    // 註：不能只看 childElementCount===0 —— 實測 FB 的攔截層帶有一個空殼子
+    //     元素，光看子元素數會漏掉它。
     function removeBlockingOverlays() {
         const W = innerWidth, H = innerHeight;
         document.querySelectorAll('body *').forEach((e) => {
-            if (e.childElementCount !== 0) return;                 // 有內容的層一律不碰
             const cs = getComputedStyle(e);
-            if (cs.position !== 'fixed' && cs.position !== 'absolute') return;
+            if (cs.pointerEvents === 'none') return;                // 本來就不擋事件
             const r = e.getBoundingClientRect();
-            if (r.width < W * 0.9 || r.height < H * 0.9) return;    // 需近全螢幕
-            const m = (cs.backgroundColor || '').match(/rgba?\(([^)]+)\)/);
-            const parts = m ? m[1].split(',').map((s) => s.trim()) : [];
-            const alpha = parts.length === 4 ? parseFloat(parts[3]) : (parts.length === 3 ? 1 : 0);
-            const dim = (alpha > 0 && alpha < 1) || (cs.backdropFilter && cs.backdropFilter !== 'none');
-            const intercepts = cs.pointerEvents !== 'none'; // 空層卻會吃事件 → 純攔截層
-            if (dim || intercepts) e.remove();
+            if (r.width < W * 0.9 || r.height < H * 0.9) return;     // 需近全螢幕
+            if ((e.textContent || '').trim().length > 0) return;     // 有文字 → 是內容
+            if (e.querySelector('a,img,video,input,button')) return; // 有媒體/互動 → 是內容
+            e.remove();
         });
     }
 
