@@ -15,7 +15,7 @@
 | **YouTube 字幕自動轉繁體** | YouTube 字幕是簡體時，自動切換或翻譯成繁體中文。 | [link](https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-subtitle-to-traditional.user.js) |
 | **YouTube 頁面助手** | YouTube 浮動助手，可依時間列出影片並自動分類，Shorts 一鍵轉一般影片頁。 | [link](https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-video-list.user.js) |
 | **表單記憶助手** | 任何有表單的頁面：`F1` 儲存所有欄位值，`F2` 叫出清單、勾選後回寫。設定依網址記憶。 | [link](https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/form-memory.user.js) |
-| **Facebook 訪客解鎖** | 未登入看 FB 公開貼文時，自動關掉一直跳出的登入彈窗、移除上下登入橫幅。已登入者不受影響。 | [link](https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/facebook-guest-view.user.js) |
+| **Facebook 訪客解鎖** | 未登入看 FB 公開貼文時，自動關掉一直跳出的登入彈窗、隱藏上下登入橫幅。已登入者不受影響。 | [link](https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/facebook-guest-view.user.js) |
 
 ---
 
