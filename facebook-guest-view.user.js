@@ -2,7 +2,7 @@
 // @name         Facebook 訪客解鎖
 // @name:en      Facebook Guest View (remove login wall)
 // @namespace    https://github.com/glennfriend/online-user-script-public
-// @version      1.0.0
+// @version      1.0.1
 // @description  未登入瀏覽 Facebook 公開貼文時，自動關掉一直跳出的登入彈窗，並移除上方登入列與下方「登入或註冊」橫幅，讓訪客能順暢看內容。已登入者完全不受影響。
 // @author       Glenn
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/facebook-guest-view.user.js
@@ -21,8 +21,9 @@
  *
  * 會清除的三個東西（都只在「未登入」時）：
  *   1. 登入彈窗 [role="dialog"]（會一直跳出來，故持續監看、出現就移除）。
- *   2. 上方登入列 [role="banner"]。
- *   3. 下方「登入或註冊 Facebook…」橫幅（position:fixed 貼底的那條）。
+ *   2. 彈窗背後的半透明遮罩（會讓畫面變灰、又擋住捲動的那層空 div）。
+ *   3. 上方登入列 [role="banner"]。
+ *   4. 下方「登入或註冊 Facebook…」橫幅（position:fixed 貼底的那條）。
  *   並解除 Facebook 對頁面捲動的鎖定。
  *
  * 安全設計：
@@ -89,10 +90,32 @@
         }
     }
 
+    // ── 模組：移除半透明遮罩 ──────────────────────────────────────────────
+    // 登入彈窗背後那層會讓畫面變灰、又擋住捲動的遮罩：一個近全螢幕、position
+    // fixed/absolute、背景半透明（或有 backdrop-filter）、且「沒有子元素」的空層。
+    // 限定「空層 + 半透明」才刪，避免誤刪有內容的容器或不透明的頁面背景。
+    function removeDimOverlays() {
+        const W = innerWidth, H = innerHeight;
+        document.querySelectorAll('body *').forEach((e) => {
+            if (e.childElementCount !== 0) return;                 // 有內容的層不碰
+            const cs = getComputedStyle(e);
+            if (cs.position !== 'fixed' && cs.position !== 'absolute') return;
+            const r = e.getBoundingClientRect();
+            if (r.width < W * 0.9 || r.height < H * 0.9) return;    // 需近全螢幕
+            const m = (cs.backgroundColor || '').match(/rgba?\(([^)]+)\)/);
+            const parts = m ? m[1].split(',').map((s) => s.trim()) : [];
+            const alpha = parts.length === 4 ? parseFloat(parts[3]) : (parts.length === 3 ? 1 : 0);
+            const translucentDim = alpha > 0 && alpha < 1;
+            const blurDim = cs.backdropFilter && cs.backdropFilter !== 'none';
+            if (translucentDim || blurDim) e.remove();
+        });
+    }
+
     // ── 主流程：清一輪 ────────────────────────────────────────────────────
     function cleanup() {
         if (isLoggedIn()) return; // 已登入者不動任何東西
         try { removeLoginDialogs(); } catch (e) { console.warn(LOG, 'dialog', e); }
+        try { removeDimOverlays(); } catch (e) { console.warn(LOG, 'overlay', e); }
         try { removeTopBar(); } catch (e) { console.warn(LOG, 'topbar', e); }
         try { removeBottomBanner(); } catch (e) { console.warn(LOG, 'bottom', e); }
         try { unlockScroll(); } catch (e) { console.warn(LOG, 'scroll', e); }
