@@ -159,13 +159,14 @@
   function arm(reason) {
     burstUntil = Date.now() + BURST_MS;
     if (!fastTimer) {
+      // 只有「真的開始一段新快檢」才記錄，否則播放/暫停頻繁時會洗版
+      if (reason) log('進入快檢：', reason);
       fastTimer = setInterval(() => {
         enforceTraditional();
         if (Date.now() > burstUntil) { clearInterval(fastTimer); fastTimer = null; }
       }, FAST_INTERVAL);
     }
     enforceTraditional(); // 立即先跑一次
-    if (reason) log('進入快檢：', reason);
   }
 
   // 常態盯場：整個頁面生命週期都不停。只是讀取播放器選項，成本極低。

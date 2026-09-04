@@ -2,8 +2,8 @@
 // @name         表單記憶助手
 // @name:en      Form Memory
 // @namespace    https://github.com/glennfriend/online-user-script-public
-// @version      1.0.8
-// @description  在任何有表單的頁面：F1 儲存目前所有 input / select / checkbox / radio 的值，F2 叫出清單，勾選要套用的項目後回寫。設定值依網址（host + path）分別記憶。
+// @version      1.1.0
+// @description  在任何有表單的頁面：F1 儲存目前所有 input / select / checkbox / radio 的值（會先跳確認視窗，避免誤按覆蓋），F2 叫出清單，勾選要套用的項目後回寫，並可還原上一版。設定值依網址（host + path）分別記憶。
 // @author       Glenn
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/form-memory.user.js
 // @downloadURL  https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/form-memory.user.js
@@ -22,9 +22,18 @@
  *
  * 操作：
  *   F1  儲存目前頁面所有欄位的值（input / select / checkbox / radio / textarea）。
+ *       會先跳出「確認視窗」列出將要儲存的內容，按下「儲存」才真的寫入 ——
+ *       F1 就在 F2 隔壁又是瀏覽器說明鍵，很容易誤按，這道確認可避免誤存把已經
+ *       存好的值蓋掉。若該頁已有設定，視窗上會標明會覆蓋幾筆。
  *   F2  叫出清單視窗，逐項顯示將被套用的值；每項前面有 checkbox（預設全選），
- *       按「讀取」只把有勾選的值回寫到頁面。每列右側有「🗑」可刪除該筆已存的值
- *       （例如清掉誤存的內容）。
+ *       按「讀取」只把有勾選的值回寫到頁面。每列右側有「🗑」可刪除該筆已存的值。
+ *       左下角的「↩ 還原上一版」可把設定換回上次改動前的內容。
+ *
+ * 防誤刪 / 防誤存（雙重保險）：
+ *   - 覆蓋前確認：F1 一律先跳確認視窗。
+ *   - 上一版備份：任何會改寫已存資料的動作（儲存、刪除單筆）都會先把現有內容
+ *     備份成「上一版」。還原是「與目前值互換」，所以可以來回切換，連誤按還原
+ *     也救得回來。
  *
  * 行為細節：
  *   - 只記「有值」的欄位：空白輸入框、未勾選的 checkbox 不會被記，清單保持乾淨。
@@ -35,7 +44,8 @@
  *   - 視窗可拖拉標題列移動；會記住上次位置，若超出視界則回到預設置中。
  *
  * 儲存：優先用 GM_setValue / GM_getValue，無 GM 時退回 localStorage。
- *   key 前綴 formmem::；視窗位置存於 formmem::__dialogpos__。
+ *   key 前綴 formmem::；目前值存於 formmem::<host><path>，上一版備份存於同一個
+ *   key 加上 ::prev；視窗位置存於 formmem::__dialogpos__。
  *
  * 已知限制：@noframes，故 iframe 內的表單不處理；@exclude YouTube 以免 F1 與
  *   YouTube 頁面助手熱鍵衝突。
@@ -204,24 +214,50 @@
         return parts.join(' > ');
     }
 
-    // ── F1：儲存 ──────────────────────────────────────────────────────────
+    // ── 儲存鍵：目前值 + 「上一版」備份（防誤按覆蓋）──────────────────────
+    const prevKey = () => pageKey() + '::prev';
+
+    function readSaved(key) {
+        try { return JSON.parse(store.get(key, '') || '[]'); } catch (e) { return []; }
+    }
+
+    // 任何會改寫已存資料的動作都走這裡：先把現有值備份成「上一版」，再寫入。
+    // 因此誤存 / 誤刪都能從 F2 視窗的「還原上一版」救回來。
+    function writeSaved(entries) {
+        const existing = store.get(pageKey(), '');
+        if (existing) store.set(prevKey(), existing);
+        store.set(pageKey(), JSON.stringify(entries));
+    }
+
+    // ── F1：儲存（先跳確認視窗，避免誤按就覆蓋已存好的值）──────────────────
     function save() {
         const entries = collectFields();
         if (!entries.length) { toast('這個頁面沒有可儲存的表單欄位'); return; }
-        store.set(pageKey(), JSON.stringify(entries));
-        toast(`已儲存 ${entries.length} 個欄位設定`);
-        log('已儲存', entries);
+        showSaveDialog(entries);
     }
 
     // ── F2：讀取（先跳清單）──────────────────────────────────────────────
     function load() {
-        let entries = [];
-        try { entries = JSON.parse(store.get(pageKey(), '') || '[]'); } catch (e) { entries = []; }
+        const entries = readSaved(pageKey());
         if (!entries.length) { toast('這個頁面還沒有已儲存的設定，請先按 F1 儲存'); return; }
-        showDialog(entries);
+        showLoadDialog(entries);
     }
 
-    // ── 讀取用的勾選視窗（Shadow DOM，避免被頁面樣式影響）─────────────────
+    // ── 還原上一版：與目前值互換，所以可以來回切換（誤按還原也救得回來）─────
+    function restorePrev() {
+        const prev = store.get(prevKey(), '');
+        if (!prev) { toast('沒有可還原的上一版'); return; }
+        const cur = store.get(pageKey(), '');
+        store.set(pageKey(), prev);
+        store.set(prevKey(), cur);
+        closeDialog();
+        toast('已還原上一版');
+        load();                       // 重新開清單，直接看到還原後的內容
+    }
+
+    // ╔══ 共用視窗 ══════════════════════════════════════════════════════════
+    // 「儲存確認」與「讀取清單」兩個視窗共用同一套外觀與行為（拖拉、記住位置、
+    // Esc 關閉），只有內容與底部按鈕不同，避免兩份重複的 UI 程式。
     let hostEl = null;
     let dragCleanup = null;      // 拖拽用的 window 事件清理函式
     function closeDialog() {
@@ -247,109 +283,68 @@
         modal.style.transform = 'none';
     }
 
-    function showDialog(entries) {
+    /* 配色取自 Radix Colors（dark：slate 中性 + blue 主色），依 12 階語意對應：
+       surface=slate2、border/hover=白色 alpha、text-hi=slate12、text-lo=slate11、
+       accent=blue9、accent-hover=blue10、value=blue11。皆符合 WCAG 對比。 */
+    const MODAL_CSS = `
+        :host {
+            --surface: #1a1b1e;              /* 不透明面板底色（近 Radix slate2）*/
+            --border: rgba(255,255,255,.08); /* 分隔線 / 邊框 */
+            --hover: rgba(255,255,255,.06);  /* 列 hover 底 */
+            --text-hi: #edeef0;              /* slate12：主要文字 */
+            --text-lo: #b0b4ba;              /* slate11：次要文字 */
+            --accent: #0a68c0;               /* 主色（按鈕 / 勾選）：白字達 WCAG AA（5.59:1）*/
+            --accent-hover: #1372d4;         /* 按鈕 hover：仍達 AA（4.79:1）且較亮做回饋 */
+            --value: #70b8ff;                /* blue11：值文字（對比 8.37:1）*/
+            --warn: #ffb224;                 /* 覆蓋提醒（amber）*/
+        }
+        .modal { pointer-events: auto; position: fixed; top: 15vh; left: 50%; transform: translateX(-50%); width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); background: var(--surface); color: var(--text-hi); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; box-shadow: 0 16px 48px rgba(0,0,0,.55); display: flex; flex-direction: column; overflow: hidden; font-family: -apple-system, "Segoe UI", Roboto, "Microsoft JhengHei", Arial, sans-serif; font-size: 14px; }
+        .head { padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: move; user-select: none; }
+        .head h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .head .host { color: var(--text-lo); font-weight: 400; font-size: 13px; }
+        .tools { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text-lo); }
+        .warn { padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--warn); }
+        .list { overflow-y: auto; padding: 6px; flex: 1; }
+        .row { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
+        .row.ro { cursor: default; }
+        .row:hover { background: var(--hover); }
+        input[type=checkbox] { width: 16px; height: 16px; flex: 0 0 auto; margin: 0; cursor: pointer; accent-color: var(--accent); }
+        .row .lbl { flex: 0 0 34%; color: var(--text-hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .row .val { flex: 1; color: var(--value); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .row .del { flex: 0 0 auto; font-size: 13px; line-height: 1; padding: 4px 6px; border: none; border-radius: 6px; background: transparent; color: var(--text-lo); opacity: .55; cursor: pointer; }
+        .row:hover .del { opacity: 1; }
+        .row .del:hover { background: rgba(255,255,255,.1); color: #ff9592; }
+        .foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border); }
+        button { font-size: 14px; font-weight: 500; padding: 8px 16px; border-radius: 8px; cursor: pointer; transition: background .12s, border-color .12s; }
+        button.cancel { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); color: var(--text-hi); }
+        button.cancel:hover { background: rgba(255,255,255,.12); }
+        button.primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
+        button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+        button.ghost { margin-right: auto; background: transparent; border: 1px solid var(--border); color: var(--text-lo); }
+        button.ghost:hover { background: rgba(255,255,255,.08); color: var(--text-hi); }
+    `;
+
+    // 開一個視窗；innerHTML 需自帶 .modal（內含 .head）結構。
+    // host 覆蓋整頁但不吃滑鼠事件（pointer-events: none），只有 modal 本身可互動，
+    // 因此不會蓋住、也不會變暗背景頁面。
+    function openModal(innerHTML) {
         closeDialog();
-        // host 覆蓋整頁但不吃滑鼠事件（pointer-events: none），只有 modal 本身可互動；
-        // 因此不會蓋住、也不會變暗背景頁面。
         hostEl = document.createElement('div');
         hostEl.style.cssText = 'all: initial; position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;';
         const shadow = hostEl.attachShadow({ mode: 'open' });
-
-        const rows = entries.map((e, i) => `
-            <label class="row">
-                <input type="checkbox" class="chk" data-i="${i}" checked>
-                <span class="lbl">${esc(e.label)}</span>
-                <span class="val" title="${esc(e.display)}">${esc(e.display)}</span>
-                <button type="button" class="del" data-i="${i}" title="刪除此筆已儲存的值">🗑</button>
-            </label>`).join('');
-
-        shadow.innerHTML = `
-            <style>
-                /* 配色取自 Radix Colors（dark：slate 中性 + blue 主色），依 12 階語意對應：
-                   surface=slate2、border/hover=白色 alpha、text-hi=slate12、text-lo=slate11、
-                   accent=blue9、accent-hover=blue10、value=blue11。皆符合 WCAG 對比。 */
-                :host {
-                    --surface: #1a1b1e;              /* 不透明面板底色（近 Radix slate2）*/
-                    --border: rgba(255,255,255,.08); /* 分隔線 / 邊框 */
-                    --hover: rgba(255,255,255,.06);  /* 列 hover 底 */
-                    --text-hi: #edeef0;              /* slate12：主要文字 */
-                    --text-lo: #b0b4ba;              /* slate11：次要文字 */
-                    --accent: #0a68c0;               /* 主色（按鈕 / 勾選）：較 blue9 深一階，白字達 WCAG AA 4.5（5.59:1）*/
-                    --accent-hover: #1372d4;         /* 按鈕 hover：仍達 AA（4.79:1）且較亮做回饋 */
-                    --value: #70b8ff;                /* blue11：值文字（對比 8.37:1）*/
-                }
-                .modal { pointer-events: auto; position: fixed; top: 15vh; left: 50%; transform: translateX(-50%); width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); background: var(--surface); color: var(--text-hi); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; box-shadow: 0 16px 48px rgba(0,0,0,.55); display: flex; flex-direction: column; overflow: hidden; font-family: -apple-system, "Segoe UI", Roboto, "Microsoft JhengHei", Arial, sans-serif; font-size: 14px; }
-                .head { padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: move; user-select: none; }
-                .head h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-                .head .host { color: var(--text-lo); font-weight: 400; font-size: 13px; }
-                .tools { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text-lo); }
-                .list { overflow-y: auto; padding: 6px; flex: 1; }
-                .row { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
-                .row:hover { background: var(--hover); }
-                input[type=checkbox] { width: 16px; height: 16px; flex: 0 0 auto; margin: 0; cursor: pointer; accent-color: var(--accent); }
-                .row .lbl { flex: 0 0 34%; color: var(--text-hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-                .row .val { flex: 1; color: var(--value); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-                .row .del { flex: 0 0 auto; font-size: 13px; line-height: 1; padding: 4px 6px; border: none; border-radius: 6px; background: transparent; color: var(--text-lo); opacity: .55; cursor: pointer; }
-                .row:hover .del { opacity: 1; }
-                .row .del:hover { background: rgba(255,255,255,.1); color: #ff9592; }
-                .foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border); }
-                button { font-size: 14px; font-weight: 500; padding: 8px 16px; border-radius: 8px; cursor: pointer; transition: background .12s, border-color .12s; }
-                button.cancel { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); color: var(--text-hi); }
-                button.cancel:hover { background: rgba(255,255,255,.12); }
-                button.primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
-                button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-            </style>
-            <div class="modal">
-                <div class="head">
-                    <h2>表單設定 (<span class="cnt">${entries.length}</span>) <span class="host">by ${esc(location.host + location.pathname)}</span></h2>
-                </div>
-                <div class="tools">
-                    <input type="checkbox" id="all" checked>
-                    <label for="all">全選 / 全不選</label>
-                </div>
-                <div class="list">${rows}</div>
-                <div class="foot">
-                    <button class="cancel">取消</button>
-                    <button class="primary apply">讀取（套用勾選項目）</button>
-                </div>
-            </div>`;
-
+        shadow.innerHTML = '<style>' + MODAL_CSS + '</style>' + innerHTML;
         document.documentElement.appendChild(hostEl);
 
         const $ = (sel) => shadow.querySelector(sel);
-        const chks = () => Array.from(shadow.querySelectorAll('.chk'));
+        makeDraggable($('.modal'), $('.head'));
+        document.addEventListener('keydown', onDialogKey, true);
+        return { shadow, $ };
+    }
 
-        $('.cancel').addEventListener('click', closeDialog);
-        $('#all').addEventListener('change', (e) => { chks().forEach((c) => { c.checked = e.target.checked; }); });
-
-        // 每列「🗑 刪除」：把該筆從儲存中移除（以 DOM 上剩餘的列為準重新寫回）
-        shadow.querySelectorAll('.del').forEach((btn) => {
-            btn.addEventListener('click', (e) => {
-                e.preventDefault(); e.stopPropagation(); // 別觸發 label 的勾選
-                btn.closest('.row').remove();
-                const remaining = chks().map((c) => entries[+c.dataset.i]);
-                store.set(pageKey(), JSON.stringify(remaining));
-                const cnt = $('.cnt'); if (cnt) cnt.textContent = remaining.length;
-                if (remaining.length === 0) { closeDialog(); toast('已刪除，這個頁面已無儲存的設定'); }
-                else { toast('已刪除該筆'); }
-            });
-        });
-        $('.apply').addEventListener('click', () => {
-            const selected = chks().filter((c) => c.checked).map((c) => entries[+c.dataset.i]);
-            let ok = 0, miss = 0;
-            selected.forEach((entry) => { applyEntry(entry) ? ok++ : miss++; });
-            closeDialog();
-            toast(`已套用 ${ok} 個欄位` + (miss ? `，${miss} 個在頁面上找不到` : ''));
-        });
-
-        // ── 拖拽：抓標題列可移動整個視窗（避免擋到視線）────────────────────
-        const modal = $('.modal');
-        const head = $('.head');
-
-        // 還原上次位置；若位置已超出目前視界（例如換了較小螢幕、或上次拖到邊角外）
-        // 就忽略、維持 CSS 預設置中位置。
+    // 拖拉標題列移動視窗；放開時記住位置
+    function makeDraggable(modal, head) {
+        if (!modal || !head) return;
         restorePosition(modal);
-
         let drag = null;
         const onMove = (e) => {
             if (!drag) return;
@@ -378,8 +373,101 @@
             window.removeEventListener('mousemove', onMove, true);
             window.removeEventListener('mouseup', onUp, true);
         };
+    }
 
-        document.addEventListener('keydown', onDialogKey, true);
+    const hostLabel = () => esc(location.host + location.pathname);
+
+    // ── F1 的確認視窗：列出將要儲存的值，按下「儲存」才真的寫入 ─────────────
+    function showSaveDialog(entries) {
+        const existing = readSaved(pageKey());
+        const rows = entries.map((e) => `
+            <div class="row ro">
+                <span class="lbl">${esc(e.label)}</span>
+                <span class="val" title="${esc(e.display)}">${esc(e.display)}</span>
+            </div>`).join('');
+
+        const warn = existing.length
+            ? `<div class="warn">⚠ 這個頁面已存有 ${existing.length} 筆設定，儲存後會被覆蓋（可在 F2 視窗按「還原上一版」救回）。</div>`
+            : '';
+
+        const { $ } = openModal(`
+            <div class="modal">
+                <div class="head">
+                    <h2>儲存表單設定 (${entries.length}) <span class="host">by ${hostLabel()}</span></h2>
+                </div>
+                ${warn}
+                <div class="list">${rows}</div>
+                <div class="foot">
+                    <button class="cancel">取消</button>
+                    <button class="primary do-save">儲存</button>
+                </div>
+            </div>`);
+
+        $('.cancel').addEventListener('click', closeDialog);
+        $('.do-save').addEventListener('click', () => {
+            writeSaved(entries);
+            closeDialog();
+            toast(`已儲存 ${entries.length} 個欄位設定`);
+            log('已儲存', entries);
+        });
+    }
+
+    // ── F2 的清單視窗：勾選要套用的項目後回寫 ──────────────────────────────
+    function showLoadDialog(entries) {
+        const rows = entries.map((e, i) => `
+            <label class="row">
+                <input type="checkbox" class="chk" data-i="${i}" checked>
+                <span class="lbl">${esc(e.label)}</span>
+                <span class="val" title="${esc(e.display)}">${esc(e.display)}</span>
+                <button type="button" class="del" data-i="${i}" title="刪除此筆已儲存的值">🗑</button>
+            </label>`).join('');
+
+        const hasPrev = !!store.get(prevKey(), '');
+        const restoreBtn = hasPrev ? '<button class="ghost restore" title="把設定換回上一次儲存前的內容">↩ 還原上一版</button>' : '';
+
+        const { shadow, $ } = openModal(`
+            <div class="modal">
+                <div class="head">
+                    <h2>表單設定 (<span class="cnt">${entries.length}</span>) <span class="host">by ${hostLabel()}</span></h2>
+                </div>
+                <div class="tools">
+                    <input type="checkbox" id="all" checked>
+                    <label for="all">全選 / 全不選</label>
+                </div>
+                <div class="list">${rows}</div>
+                <div class="foot">
+                    ${restoreBtn}
+                    <button class="cancel">取消</button>
+                    <button class="primary apply">讀取（套用勾選項目）</button>
+                </div>
+            </div>`);
+
+        const chks = () => Array.from(shadow.querySelectorAll('.chk'));
+
+        $('.cancel').addEventListener('click', closeDialog);
+        if (hasPrev) $('.restore').addEventListener('click', restorePrev);
+        $('#all').addEventListener('change', (e) => { chks().forEach((c) => { c.checked = e.target.checked; }); });
+
+        // 每列「🗑 刪除」：把該筆從儲存中移除（同樣先備份成上一版，可還原）
+        shadow.querySelectorAll('.del').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault(); e.stopPropagation(); // 別觸發 label 的勾選
+                btn.closest('.row').remove();
+                const remaining = chks().map((c) => entries[+c.dataset.i]);
+                writeSaved(remaining);
+                const cnt = $('.cnt'); if (cnt) cnt.textContent = remaining.length;
+                if (remaining.length === 0) { closeDialog(); toast('已刪除，這個頁面已無儲存的設定'); }
+                else { toast('已刪除該筆'); }
+            });
+        });
+
+        $('.apply').addEventListener('click', () => {
+            const selected = chks().filter((c) => c.checked).map((c) => entries[+c.dataset.i]);
+            let ok = 0, miss = 0;
+            selected.forEach((entry) => { applyEntry(entry) ? ok++ : miss++; });
+            closeDialog();
+            toast(`已套用 ${ok} 個欄位` + (miss ? `，${miss} 個在頁面上找不到` : ''));
+        });
     }
 
     // ── 小提示（toast）────────────────────────────────────────────────────
