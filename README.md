@@ -13,7 +13,7 @@
 | 腳本 | 說明 | 安裝 |
 |------|------|------|
 | **YouTube 字幕自動轉繁體** | 字幕是簡體時自動切換到繁體字幕軌<br>沒有繁體軌就自動翻譯成繁體中文<br>廣告結束或稍後才播放也會補轉 | [link](https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-subtitle-to-traditional.user.js) |
-| **YouTube 頁面助手** | 首頁可依時間列出影片並自動分類<br>Shorts 一鍵轉一般影片頁<br>影片頁可用滾輪在播放器上調音量 | [link](https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-video-list.user.js) |
+| **YouTube 頁面助手** | 首頁, 搜尋結果, 頻道頁, 訂閱內容, 播放清單 可依時間列出影片並自動分類<br>Shorts 一鍵轉一般影片頁<br>影片頁可用滾輪在播放器上調音量 | [link](https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-video-list.user.js) |
 | **表單記憶助手** | 任何有表單的頁面，`F1` 儲存所有欄位值<br>`F2` 叫出清單、勾選後回寫<br>儲存前會先確認，可還原上一版<br>設定依網址分別記憶 | [link](https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/form-memory.user.js) |
 | **訪客解鎖（多站台）** | 未登入瀏覽時自動關掉一直跳出的登入彈窗<br>隱藏上方與下方的登入橫幅<br>支援 Facebook、bilibili，新站台只要加一個 adapter<br>已登入者不受影響 | [link](https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/guest-view.user.js) |
 
