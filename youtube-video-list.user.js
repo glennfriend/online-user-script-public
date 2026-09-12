@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube 頁面助手
 // @namespace    browser-tools
-// @version      4.8
+// @version      4.9
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-video-list.user.js
 // @downloadURL  https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-video-list.user.js
 // @description  浮動助手, 依頁面顯示不同功能選單；一般影片頁可用滑鼠滾輪在播放器上調整音量
@@ -23,11 +23,12 @@
  *       另外在 Shorts 頁會攔截 ← → 改為快轉，避免被 YouTube 當成切換影片。
  *
  * 功能二：滾輪調音量（只在一般影片頁 /watch）
- *   滑鼠移到播放器上滾動滾輪 → 向上加 5%、向下減 5%，並在畫面上短暫顯示目前音量。
+ *   滑鼠移到播放器上滾動滾輪 → 向上加 5%、向下減 5%，並在播放器右上角短暫顯示
+ *   半透明的音量提示。
  *   - 只有「滑鼠在播放器範圍內」才接管；在留言區等其他地方滾動，頁面照常捲動。
  *   - 音量為 0 時自動靜音；靜音狀態下往上滾會自動解除靜音。
  *   - 走 YouTube 官方 player API，所以 YouTube 自己的音量列與記憶值會同步更新。
- *   - 每格的百分比可改 SETTINGS.volumeScroll.step。
+ *   - 每格的百分比可改 SETTINGS.volumeScroll.step，提示透明度改 osdOpacity。
  *
  * 程式結構：檔案分成 SITE 區塊（這個網站專屬：SETTINGS / PAGE_CONFIGS / Actions /
  *   Helpers / VolumeScroll）與 CORE 區塊（通用：log / ActionRunner / PanelAPI /
@@ -41,7 +42,7 @@
 
 (function () {
     'use strict';
-    console.log('[YT助手 v4.8] 腳本已載入，頁面:', location.pathname);
+    console.log('[YT助手 v4.9] 腳本已載入，頁面:', location.pathname);
 
     // ╔════════════════════════════════════════════════════════════════════════╗
     // ║                                                                      ║
@@ -55,7 +56,9 @@
         ball: { size: 48, color: '#FF0000', icon: '▶', opacity: 0.7, opacityHover: 1 },
         panel: { width: 420, maxHeight: 'calc(100vh - 20px)', bg: '#1e1e1e', color: '#e0e0e0', fontFamily: 'Arial, "Microsoft JhengHei", sans-serif' },
         hotkey: 'F1',
-        volumeScroll: { step: 5 },   // 滑鼠在播放器上滾動時，每格調整的音量百分比
+        // step：滑鼠在播放器上滾動時，每格調整的音量百分比
+        // osdOpacity：右上角音量提示的透明度（0~1）
+        volumeScroll: { step: 5, osdOpacity: 0.5 },
         debug: false,
         logPrefix: '[YT助手]',
         // 分類規則：keywords 同時比對標題和頻道名稱（不分大小寫）
@@ -384,12 +387,13 @@
             return vol;
         },
 
-        // 顯示短暫的音量提示。掛在播放器內部，全螢幕時也看得到。
+        // 顯示短暫的音量提示：靠近播放器右上角、半透明，盡量不擋畫面。
+        // 掛在播放器內部，全螢幕時也看得到。
         showOSD(player, vol) {
             if (!this.osdEl || !this.osdEl.isConnected) {
                 this.osdEl = document.createElement('div');
                 this.osdEl.style.cssText = [
-                    'position:absolute', 'top:12%', 'left:50%', 'transform:translateX(-50%)',
+                    'position:absolute', 'top:16px', 'right:16px',
                     'z-index:60', 'pointer-events:none', 'padding:10px 18px', 'border-radius:10px',
                     'background:rgba(0,0,0,.75)', 'color:#fff', 'font-size:20px', 'font-weight:600',
                     'font-family:' + SETTINGS.panel.fontFamily, 'letter-spacing:1px',
@@ -398,7 +402,8 @@
                 player.appendChild(this.osdEl);
             }
             this.osdEl.textContent = (vol === 0 ? '🔇 ' : '🔊 ') + vol + '%';
-            this.osdEl.style.opacity = '1';
+            const op = (SETTINGS.volumeScroll && SETTINGS.volumeScroll.osdOpacity);
+            this.osdEl.style.opacity = String(op == null ? 0.5 : op);
             clearTimeout(this.osdTimer);
             this.osdTimer = setTimeout(() => { if (this.osdEl) this.osdEl.style.opacity = '0'; }, 800);
         },
