@@ -1,19 +1,47 @@
 // ==UserScript==
 // @name         YouTube 頁面助手
 // @namespace    browser-tools
-// @version      4.7
+// @version      4.8
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-video-list.user.js
 // @downloadURL  https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-video-list.user.js
-// @description  浮動助手, 依頁面顯示不同功能選單
+// @description  浮動助手, 依頁面顯示不同功能選單；一般影片頁可用滑鼠滾輪在播放器上調整音量
 // @match        https://www.youtube.com/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @run-at       document-idle
 // ==/UserScript==
 
+/*
+ * YouTube 頁面助手 — 使用說明
+ * ============================================================================
+ * 功能一：浮動助手面板（右下角紅色圓球，或按 F1 開關）
+ *   依目前頁面顯示不同選單：
+ *     首頁 / 搜尋結果 / 頻道頁 / 訂閱內容 / 播放清單 → 列出影片並依時間排序，
+ *       同時依標題與頻道名稱自動貼上分類標籤（影劇 / 美食 / 健康 / Game / 財經 /
+ *       科技…），可用上方標籤列篩選。分類規則在 SETTINGS.categoryRules。
+ *     Shorts → 轉成一般影片頁（可帶秒數）、前後快轉 5 秒；面板開啟時可按 1/2/3/4。
+ *       另外在 Shorts 頁會攔截 ← → 改為快轉，避免被 YouTube 當成切換影片。
+ *
+ * 功能二：滾輪調音量（只在一般影片頁 /watch）
+ *   滑鼠移到播放器上滾動滾輪 → 向上加 5%、向下減 5%，並在畫面上短暫顯示目前音量。
+ *   - 只有「滑鼠在播放器範圍內」才接管；在留言區等其他地方滾動，頁面照常捲動。
+ *   - 音量為 0 時自動靜音；靜音狀態下往上滾會自動解除靜音。
+ *   - 走 YouTube 官方 player API，所以 YouTube 自己的音量列與記憶值會同步更新。
+ *   - 每格的百分比可改 SETTINGS.volumeScroll.step。
+ *
+ * 程式結構：檔案分成 SITE 區塊（這個網站專屬：SETTINGS / PAGE_CONFIGS / Actions /
+ *   Helpers / VolumeScroll）與 CORE 區塊（通用：log / ActionRunner / PanelAPI /
+ *   FloatingBall / Panel / Router）。要加功能請改 SITE，不要動 CORE。
+ *
+ * 外部相依（YouTube 改版時要調整的地方）：
+ *   - 播放器物件 #movie_player 的 getVolume / setVolume / isMuted / seekTo API。
+ *   - 影片清單的 DOM 選擇器（見 YouTubeHelpers）。
+ * ============================================================================
+ */
+
 (function () {
     'use strict';
-    console.log('[YT助手 v4.7] 腳本已載入，頁面:', location.pathname);
+    console.log('[YT助手 v4.8] 腳本已載入，頁面:', location.pathname);
 
     // ╔════════════════════════════════════════════════════════════════════════╗
     // ║                                                                      ║
@@ -27,6 +55,7 @@
         ball: { size: 48, color: '#FF0000', icon: '▶', opacity: 0.7, opacityHover: 1 },
         panel: { width: 420, maxHeight: 'calc(100vh - 20px)', bg: '#1e1e1e', color: '#e0e0e0', fontFamily: 'Arial, "Microsoft JhengHei", sans-serif' },
         hotkey: 'F1',
+        volumeScroll: { step: 5 },   // 滑鼠在播放器上滾動時，每格調整的音量百分比
         debug: false,
         logPrefix: '[YT助手]',
         // 分類規則：keywords 同時比對標題和頻道名稱（不分大小寫）
@@ -314,6 +343,77 @@
             }
         }
         return matched.length > 0 ? matched : [SETTINGS.defaultCategory || '無標籤'];
+    };
+
+    // ── 滾輪調音量（一般影片頁 /watch）─────────────────────────────────
+    // 滑鼠移到播放器上滾動 → 音量 ±step%；滑鼠不在播放器上時完全不接管，
+    // 頁面（留言區等）照常捲動。自成一塊，壞掉也只影響這個功能。
+    const VolumeScroll = {
+        osdEl: null,
+        osdTimer: null,
+
+        // 只在一般影片頁、且滑鼠位於播放器上時才接管滾輪；否則回傳 null
+        targetPlayer(e) {
+            if (location.pathname !== '/watch') return null;   // Shorts / 其他頁不處理
+            const player = document.getElementById('movie_player');
+            if (!player || !player.contains(e.target)) return null;
+            return player;
+        },
+
+        // 調整音量並回傳新音量（0~100）；失敗回傳 null
+        adjust(player, delta) {
+            const step = (SETTINGS.volumeScroll && SETTINGS.volumeScroll.step) || 5;
+            const d = delta * step;
+            // 優先用 YouTube player API：會同步更新 YouTube 自己的音量 UI 與記憶值
+            if (typeof player.getVolume === 'function' && typeof player.setVolume === 'function') {
+                if (d > 0 && typeof player.isMuted === 'function' && player.isMuted() && typeof player.unMute === 'function') {
+                    player.unMute();                      // 靜音時往上滾 → 先解除靜音
+                }
+                const vol = Math.max(0, Math.min(100, Math.round(player.getVolume()) + d));
+                player.setVolume(vol);
+                if (vol === 0 && typeof player.mute === 'function') player.mute();
+                return vol;
+            }
+            // 備援：直接操作 video 元素（volume 是 0~1）
+            const video = player.querySelector('video');
+            if (!video) return null;
+            if (d > 0 && video.muted) video.muted = false;
+            const vol = Math.max(0, Math.min(100, Math.round(video.volume * 100) + d));
+            video.volume = vol / 100;
+            if (vol === 0) video.muted = true;
+            return vol;
+        },
+
+        // 顯示短暫的音量提示。掛在播放器內部，全螢幕時也看得到。
+        showOSD(player, vol) {
+            if (!this.osdEl || !this.osdEl.isConnected) {
+                this.osdEl = document.createElement('div');
+                this.osdEl.style.cssText = [
+                    'position:absolute', 'top:12%', 'left:50%', 'transform:translateX(-50%)',
+                    'z-index:60', 'pointer-events:none', 'padding:10px 18px', 'border-radius:10px',
+                    'background:rgba(0,0,0,.75)', 'color:#fff', 'font-size:20px', 'font-weight:600',
+                    'font-family:' + SETTINGS.panel.fontFamily, 'letter-spacing:1px',
+                    'transition:opacity .2s', 'opacity:0',
+                ].join(';');
+                player.appendChild(this.osdEl);
+            }
+            this.osdEl.textContent = (vol === 0 ? '🔇 ' : '🔊 ') + vol + '%';
+            this.osdEl.style.opacity = '1';
+            clearTimeout(this.osdTimer);
+            this.osdTimer = setTimeout(() => { if (this.osdEl) this.osdEl.style.opacity = '0'; }, 800);
+        },
+
+        init() {
+            // capture + passive:false：要比 YouTube 的監聽器早一步，且需要 preventDefault
+            document.addEventListener('wheel', (e) => {
+                const player = this.targetPlayer(e);
+                if (!player) return;                      // 不在播放器上 → 讓頁面正常捲動
+                e.preventDefault();                       // 阻止頁面跟著捲
+                e.stopPropagation();
+                const vol = this.adjust(player, e.deltaY < 0 ? 1 : -1);
+                if (vol !== null) this.showOSD(player, vol);
+            }, { capture: true, passive: false });
+        },
     };
 
     // ╔════════════════════════════════════════════════════════════════════════╗
@@ -645,6 +745,7 @@
         else if (e.key === '4') { e.preventDefault(); Actions.seekVideo(ActionRunner, panelAPI, 5); }
     });
 
+    VolumeScroll.init();   // 滾輪調音量（只在 /watch 生效）
     onNavigate();
 
 })();
