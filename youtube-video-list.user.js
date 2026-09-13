@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube 頁面助手
 // @namespace    browser-tools
-// @version      4.10
+// @version      4.11
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-video-list.user.js
 // @downloadURL  https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/youtube-video-list.user.js
 // @description  浮動助手, 依頁面顯示不同功能選單；一般影片頁可用滑鼠滾輪在播放器上調整音量
@@ -23,12 +23,15 @@
  *       另外在 Shorts 頁會攔截 ← → 改為快轉，避免被 YouTube 當成切換影片。
  *
  * 功能二：滾輪調音量（只在一般影片頁 /watch）
- *   滑鼠移到播放器上滾動滾輪 → 向上加 5%、向下減 5%，並在播放器正上方短暫顯示
- *   半透明的音量提示。
+ *   滑鼠移到播放器上滾動滾輪 → 向上加 5%、向下減 5%。
  *   - 只有「滑鼠在播放器範圍內」才接管；在留言區等其他地方滾動，頁面照常捲動。
- *   - 音量為 0 時自動靜音；靜音狀態下往上滾會自動解除靜音。
- *   - 走 YouTube 官方 player API，所以 YouTube 自己的音量列與記憶值會同步更新。
- *   - 每格的百分比可改 SETTINGS.volumeScroll.step，提示透明度改 osdOpacity。
+ *   - 實作上是「送出 YouTube 原生的上下鍵」，不是呼叫 player.setVolume()。原因：
+ *     setVolume() 只改當下音量，不會寫入 YouTube 記住音量用的 localStorage
+ *     『yt-player-volume』，會造成「調完音量、下次進來又變回原本大小」。
+ *     走原生按鍵則音量會被記住，音量列與 YouTube 自己的音量提示也會同步，
+ *     靜音與 0% 的處理同樣交給 YouTube。
+ *   - 每格的百分比可改 SETTINGS.volumeScroll.step（會換算成原生 5% 步進的次數）。
+ *   - 腳本自己的音量提示預設關閉（YouTube 已有），要開就把 showOsd 設成 true。
  *
  * 程式結構：檔案分成 SITE 區塊（這個網站專屬：SETTINGS / PAGE_CONFIGS / Actions /
  *   Helpers / VolumeScroll）與 CORE 區塊（通用：log / ActionRunner / PanelAPI /
@@ -42,7 +45,7 @@
 
 (function () {
     'use strict';
-    console.log('[YT助手 v4.10] 腳本已載入，頁面:', location.pathname);
+    console.log('[YT助手 v4.11] 腳本已載入，頁面:', location.pathname);
 
     // ╔════════════════════════════════════════════════════════════════════════╗
     // ║                                                                      ║
@@ -56,9 +59,11 @@
         ball: { size: 48, color: '#FF0000', icon: '▶', opacity: 0.7, opacityHover: 1 },
         panel: { width: 420, maxHeight: 'calc(100vh - 20px)', bg: '#1e1e1e', color: '#e0e0e0', fontFamily: 'Arial, "Microsoft JhengHei", sans-serif' },
         hotkey: 'F1',
-        // step：滑鼠在播放器上滾動時，每格調整的音量百分比
-        // osdOpacity：正上方音量提示的透明度（0~1）
-        volumeScroll: { step: 5, osdOpacity: 0.5 },
+        // step：滾一格調整的音量百分比（會換算成 YouTube 原生的 5% 步進，至少 1 次）
+        // showOsd：是否顯示本腳本自己的音量提示。預設 false —— 因為改走原生按鍵後，
+        //          YouTube 會顯示它自己的音量提示，兩個一起出現會重複。
+        // osdOpacity：自己的音量提示透明度（0~1），僅在 showOsd 為 true 時有意義
+        volumeScroll: { step: 5, showOsd: false, osdOpacity: 0.5 },
         debug: false,
         logPrefix: '[YT助手]',
         // 分類規則：keywords 同時比對標題和頻道名稱（不分大小寫）
@@ -363,23 +368,47 @@
             return player;
         },
 
+        readVolume(player) {
+            try { return typeof player.getVolume === 'function' ? Math.round(player.getVolume()) : null; }
+            catch (e) { return null; }
+        },
+
         // 調整音量並回傳新音量（0~100）；失敗回傳 null
+        //
+        // ★ 走 YouTube 原生的上下鍵，而不是 player.setVolume()。
+        //   實測：setVolume() 只改當下音量，不會寫入 YouTube 記住音量用的
+        //   localStorage『yt-player-volume』，所以下次開影片又被記憶值蓋回去
+        //   （這就是「調完音量，下次進來還是原本大小」的原因）。
+        //   原生按鍵則會一次做完：寫入記憶、同步音量列、顯示 YouTube 自己的音量提示，
+        //   靜音與 0% 的處理也交給 YouTube，不必自己重做一套。
+        //   原生一次固定 5%，因此 step 換算成「按幾次」（四捨五入，至少 1 次）。
         adjust(player, delta) {
             const step = (SETTINGS.volumeScroll && SETTINGS.volumeScroll.step) || 5;
-            const d = delta * step;
-            // 優先用 YouTube player API：會同步更新 YouTube 自己的音量 UI 與記憶值
-            if (typeof player.getVolume === 'function' && typeof player.setVolume === 'function') {
-                if (d > 0 && typeof player.isMuted === 'function' && player.isMuted() && typeof player.unMute === 'function') {
-                    player.unMute();                      // 靜音時往上滾 → 先解除靜音
-                }
-                const vol = Math.max(0, Math.min(100, Math.round(player.getVolume()) + d));
+            const presses = Math.max(1, Math.round(step / 5));
+            const key = delta > 0 ? 'ArrowUp' : 'ArrowDown';
+            const keyCode = delta > 0 ? 38 : 40;
+            const before = this.readVolume(player);
+
+            for (let i = 0; i < presses; i++) {
+                player.dispatchEvent(new KeyboardEvent('keydown', {
+                    key, code: key, keyCode, which: keyCode, bubbles: true, cancelable: true,
+                }));
+            }
+            const after = this.readVolume(player);
+            if (after !== before) return after;                                   // 原生路徑成功（音量已被記住）
+            if (before !== null && ((delta > 0 && before >= 100) || (delta < 0 && before <= 0))) return before; // 已到極限，正常
+
+            // 備援：原生按鍵沒反應（YouTube 改版或播放器狀態特殊）時至少讓音量能動。
+            // 注意：這條路徑不會被 YouTube 記住，屬於降級行為。
+            if (typeof player.setVolume === 'function' && before !== null) {
+                const vol = Math.max(0, Math.min(100, before + delta * step));
                 player.setVolume(vol);
-                if (vol === 0 && typeof player.mute === 'function') player.mute();
                 return vol;
             }
-            // 備援：直接操作 video 元素（volume 是 0~1）
+            // 最後備援：連 player API 都沒有時，直接操作 video 元素（volume 是 0~1）
             const video = player.querySelector('video');
             if (!video) return null;
+            const d = delta * step;
             if (d > 0 && video.muted) video.muted = false;
             const vol = Math.max(0, Math.min(100, Math.round(video.volume * 100) + d));
             video.volume = vol / 100;
@@ -416,7 +445,9 @@
                 e.preventDefault();                       // 阻止頁面跟著捲
                 e.stopPropagation();
                 const vol = this.adjust(player, e.deltaY < 0 ? 1 : -1);
-                if (vol !== null) this.showOSD(player, vol);
+                // 預設不顯示：YouTube 自己會跳音量提示，重複顯示反而擋畫面
+                const wantOsd = SETTINGS.volumeScroll && SETTINGS.volumeScroll.showOsd;
+                if (vol !== null && wantOsd) this.showOSD(player, vol);
             }, { capture: true, passive: false });
         },
     };
