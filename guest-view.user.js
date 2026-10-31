@@ -2,13 +2,15 @@
 // @name         訪客解鎖（多站台）
 // @name:en      Guest View (multi-site login-wall remover)
 // @namespace    https://github.com/glennfriend/online-user-script-public
-// @version      1.0.0
-// @description  未登入瀏覽時自動排除擋路的登入牆：關掉一直跳出的登入彈窗、隱藏登入橫幅，讓訪客能順暢看內容。目前支援 Facebook、bilibili，新站台只要加一個 adapter。已登入者完全不受影響。
+// @version      1.1.0
+// @description  未登入瀏覽時自動排除擋路的登入牆：關掉一直跳出的登入彈窗、隱藏登入橫幅，讓訪客能順暢看內容。目前支援 Facebook、bilibili、Threads，新站台只要加一個 adapter。已登入者完全不受影響。
 // @author       Glenn
 // @updateURL    https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/guest-view.user.js
 // @downloadURL  https://raw.githubusercontent.com/glennfriend/online-user-script-public/main/guest-view.user.js
 // @match        *://*.facebook.com/*
 // @match        *://*.bilibili.com/*
+// @match        *://*.threads.com/*
+// @match        *://*.threads.net/*
 // @grant        none
 // @run-at       document-start
 // @noframes
@@ -20,7 +22,7 @@
  * 用途：未登入瀏覽網站時，網站常用登入牆擋住內容。此腳本自動把擋路的元素排除，
  *       讓訪客能正常閱讀。裝好即自動運作，無需操作。
  *
- * 目前支援：Facebook、bilibili。
+ * 目前支援：Facebook、bilibili、Threads。
  *
  * ── 架構：共用核心 + 每站一個 adapter ──────────────────────────────────────
  * 這支腳本刻意做成「一支腳本管所有站台」，避免每個站台各裝一支、彼此打架：
@@ -121,6 +123,18 @@
             isLoginDialog: (el) => !!el.querySelector('.bili-mini-login-right-wp,.login-scan-wp') ||
                 /扫码登录|扫描二维码登录|密码登录|短信登录|其他方式登录|未注册过哔哩哔哩/.test(el.textContent || ''),
             closeSelector: '.bili-mini-close-icon',
+            steps: [],
+        },
+        {
+            id: 'threads',
+            match: (host) => /(^|\.)threads\.(com|net)$/.test(host),
+            // sessionid 是 HttpOnly 讀不到；ds_user_id 是 Meta 系（同 Instagram）登入後才有的可讀 cookie
+            isLoggedIn: () => /(^|;\s*)ds_user_id=/.test(document.cookie),
+            dialogSelector: '[role="dialog"]',
+            isLoginDialog: (el) => /使用 Instagram 帳號繼續|透過 Threads 暢所欲言|Continue with Instagram|Say more with Threads/i.test(el.textContent || ''),
+            // 這個登入牆沒有關閉鈕、Escape 無效、程式點遮罩也無效 → 交給核心第 3 層降級隱藏。
+            // 保留 selector 是為了將來若 Threads 加上關閉鈕時能自動走原生關閉。
+            closeSelector: '[aria-label="關閉"],[aria-label="Close"],[aria-label="关闭"]',
             steps: [],
         },
     ];

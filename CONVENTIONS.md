@@ -28,7 +28,7 @@
 - 每個步驟各自 `try/catch`，某站台 adapter 壞掉只有該站失效，不影響核心與其他站台。
 - 新增站台 = 加一個 adapter 物件 + 在 metadata 補 `@match`，不需要動核心。
 
-範例：[guest-view.user.js](guest-view.user.js)（訪客解鎖，支援 Facebook / bilibili）。
+範例：[guest-view.user.js](guest-view.user.js)（訪客解鎖，支援 Facebook / bilibili / Threads）。
 
 ---
 
